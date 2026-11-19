@@ -1,6 +1,6 @@
 # Dataset
 data/
-
+notebook_ap/
 # Python
 __pycache__/
 *.py[cod]
