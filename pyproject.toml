@@ -6,5 +6,7 @@ dependencies = [
     "datasets>=5.2.0",
     "ipykernel>=7.4.0",
     "matplotlib>=3.11.2",
+    "numpy>=1.26",
     "pillow>=13.0.0",
+    "torch>=2.5",
 ]
