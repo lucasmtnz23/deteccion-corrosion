@@ -1,0 +1,45 @@
+# Estrategia 1: Aumento de datos (Data Augmentation)
+# Hipótesis: los defectos en superficies (corrosión, grietas, deslizamientos)
+# son invariantes a volteos H/V, sufren variaciones de iluminación y el 85,3 %
+# son objetos pequeños (< 32² px²), por lo que recortes aleatorios con zoom
+# aumentan su escala efectiva durante el entrenamiento.
+
+modelo:
+  nombre: faster_rcnn
+  num_clases: 4
+  preentrenado: true
+  capas_entrenables_backbone: 3
+  tamano_min: 800
+  tamano_max: 1333
+
+datos:
+  batch_size: 2
+  num_workers: 0
+  aumentos:
+    volteo_horizontal: 0.5
+    volteo_vertical: 0.5
+    recorte_aleatorio:
+      prob: 0.5
+      escala_min: 0.65
+      escala_max: 0.95
+      visibilidad_min: 0.35
+    color_jitter:
+      prob: 0.7
+      brillo: 0.2
+      contraste: 0.2
+      saturacion: 0.2
+      tono: 0.04
+
+entrenamiento:
+  semilla: 42
+  epocas: 12
+  optimizador: adamw
+  scheduler: cosine
+  lr: 0.0001
+  weight_decay: 0.0001
+  warmup_epocas: 1
+  pasos_acumulacion: 4
+  clip_grad_norm: 10.0
+  usar_amp: true
+  metrica_seleccion: map
+  dir_salida: results/exp01_data_augmentation
