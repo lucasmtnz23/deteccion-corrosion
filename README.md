@@ -7,7 +7,7 @@
 
 **Autores:**
 - Lucas Andrea Martínez Calveiro
-- Juan Pablo Pardo
+- Juan Pablo Pardo Pérez
 
 ## Descripción
 
@@ -80,8 +80,6 @@ uv run python scripts/descargar_datos.py
 
 El script descarga el dataset desde Hugging Face y lo guarda en `data/corrosion-bi3q3/`.
 
-La carpeta `data/` está incluida en `.gitignore`, por lo que cada integrante debe descargar el dataset localmente.
+La carpeta `data/` está incluida en `.gitignore`.
 
 ---
-
-*Las instrucciones para el análisis del dataset, entrenamiento y evaluación de los modelos se añadirán conforme avance la práctica.*
