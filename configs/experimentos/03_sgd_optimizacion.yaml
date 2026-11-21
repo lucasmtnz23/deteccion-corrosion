@@ -1,7 +1,7 @@
 # Estrategia 3a: Comparativa de optimizador y scheduler (SGD + MultiStepLR)
 # Hipótesis: evaluar SGD con momentum (clásico en detectores two-stage) y
 # decaimiento escalonado frente a AdamW + cosine del baseline para comprobar
-# si generaliza mejor en un dataset reducido (840 imágenes).
+# si generaliza mejor en un dataset reducido (820 imágenes de entrenamiento).
 
 modelo:
   nombre: faster_rcnn
@@ -31,4 +31,4 @@ entrenamiento:
   clip_grad_norm: 10.0
   usar_amp: true
   metrica_seleccion: map
-  dir_salida: results/exp03_sgd_multistep
+  dir_salida: results/slippage_validation_split/exp03_sgd_multistep

@@ -26,4 +26,4 @@ entrenamiento:
   clip_grad_norm: 10.0
   usar_amp: true
   metrica_seleccion: map
-  dir_salida: results/faster_rcnn
+  dir_salida: results/slippage_validation_split/faster_rcnn

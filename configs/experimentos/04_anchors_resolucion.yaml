@@ -1,5 +1,5 @@
 # Estrategia 3b: Adaptación específica a objetos pequeños y grietas alargadas
-# Hipótesis (derivada del EDA): el 85,3 % de las cajas tienen área < 32² px²
+# Hipótesis (derivada del EDA): el 85,2 % de las cajas tienen área < 32² px²
 # (mediana 234,5 px²) y las grietas ('crack') son muy estrechas y alargadas.
 # Reducir los anchors a [[16], [32], [64], [128], [256]], ampliar las relaciones
 # de aspecto a [0.25, 0.5, 1.0, 2.0, 4.0] y elevar la resolución interna a 960 px
@@ -32,4 +32,4 @@ entrenamiento:
   clip_grad_norm: 10.0
   usar_amp: true
   metrica_seleccion: map
-  dir_salida: results/exp04_anchors_resolucion
+  dir_salida: results/slippage_validation_split/exp04_anchors_resolucion
