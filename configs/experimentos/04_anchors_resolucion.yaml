@@ -1,0 +1,35 @@
+# Estrategia 3b: Adaptación específica a objetos pequeños y grietas alargadas
+# Hipótesis (derivada del EDA): el 85,3 % de las cajas tienen área < 32² px²
+# (mediana 234,5 px²) y las grietas ('crack') son muy estrechas y alargadas.
+# Reducir los anchors a [[16], [32], [64], [128], [256]], ampliar las relaciones
+# de aspecto a [0.25, 0.5, 1.0, 2.0, 4.0] y elevar la resolución interna a 960 px
+# mejora la cobertura de la RPN y el AP sobre objetos pequeños y grietas.
+
+modelo:
+  nombre: faster_rcnn
+  num_clases: 4
+  preentrenado: true
+  capas_entrenables_backbone: 3
+  tamano_min: 960
+  tamano_max: 1333
+  tamanos_anchor: [[16], [32], [64], [128], [256]]
+  relaciones_aspecto: [0.25, 0.5, 1.0, 2.0, 4.0]
+
+datos:
+  batch_size: 2
+  num_workers: 0
+  volteo_horizontal: 0.5
+
+entrenamiento:
+  semilla: 42
+  epocas: 12
+  optimizador: adamw
+  scheduler: cosine
+  lr: 0.0001
+  weight_decay: 0.0001
+  warmup_epocas: 1
+  pasos_acumulacion: 4
+  clip_grad_norm: 10.0
+  usar_amp: true
+  metrica_seleccion: map
+  dir_salida: results/exp04_anchors_resolucion

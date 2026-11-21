@@ -1,0 +1,29 @@
+modelo:
+  nombre: faster_rcnn
+  num_clases: 4
+  preentrenado: true
+  capas_entrenables_backbone: 3
+  tamano_min: 800
+  tamano_max: 1333
+  # Opcionales para experimentar con anchors (dejar comentados para baseline):
+  # tamanos_anchor: [[16], [32], [64], [128], [256]]
+  # relaciones_aspecto: [0.5, 1.0, 2.0]
+
+datos:
+  batch_size: 2
+  num_workers: 0
+  volteo_horizontal: 0.5
+
+entrenamiento:
+  semilla: 42
+  epocas: 12
+  optimizador: adamw
+  lr: 0.0001
+  weight_decay: 0.0001
+  momentum: 0.9
+  warmup_epocas: 1
+  pasos_acumulacion: 4
+  clip_grad_norm: 10.0
+  usar_amp: true
+  metrica_seleccion: map
+  dir_salida: results/faster_rcnn

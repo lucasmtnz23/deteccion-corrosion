@@ -8,5 +8,22 @@ dependencies = [
     "matplotlib>=3.11.2",
     "numpy>=1.26",
     "pillow>=13.0.0",
-    "torch>=2.5",
+    "pyyaml>=6.0.0",
+    "torch>=2.5.0",
+    "torchmetrics[detection]>=1.4.0",
+    "torchvision>=0.20.0",
+    "tqdm>=4.66.0",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchvision = [
+    { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
