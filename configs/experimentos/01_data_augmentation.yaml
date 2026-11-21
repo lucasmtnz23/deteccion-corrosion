@@ -1,6 +1,6 @@
 # Estrategia 1: Aumento de datos (Data Augmentation)
 # Hipótesis: los defectos en superficies (corrosión, grietas, deslizamientos)
-# son invariantes a volteos H/V, sufren variaciones de iluminación y el 85,3 %
+# son invariantes a volteos H/V, sufren variaciones de iluminación y el 85,2 %
 # son objetos pequeños (< 32² px²), por lo que recortes aleatorios con zoom
 # aumentan su escala efectiva durante el entrenamiento.
 
@@ -42,4 +42,4 @@ entrenamiento:
   clip_grad_norm: 10.0
   usar_amp: true
   metrica_seleccion: map
-  dir_salida: results/exp01_data_augmentation
+  dir_salida: results/slippage_validation_split/exp01_data_augmentation

@@ -118,7 +118,7 @@ class RecorteAleatorioConCajas:
     """Recorta una subregión aleatoria y la reescala al tamaño original (zoom-in).
 
     Esta transformación resulta especialmente útil en Corrosion-bi3q3, donde el
-    85,3 % de los objetos son pequeños (< 32² px²), ya que amplía los defectos
+    85,2 % de los objetos de entrenamiento son pequeños (< 32² px²), ya que amplía los defectos
     pequeños durante el entrenamiento. Conserva solo cajas con al menos
     ``visibilidad_min`` de su área original dentro del recorte.
     """

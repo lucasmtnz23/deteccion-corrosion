@@ -32,4 +32,4 @@ entrenamiento:
   clip_grad_norm: 10.0
   usar_amp: true
   metrica_seleccion: map
-  dir_salida: results/exp02_transfer_learning
+  dir_salida: results/slippage_validation_split/exp02_transfer_learning

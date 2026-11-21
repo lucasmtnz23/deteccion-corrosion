@@ -36,4 +36,4 @@ entrenamiento:
   clip_grad_norm: 10.0
   usar_amp: true
   metrica_seleccion: map
-  dir_salida: results/exp05_perdidas_ciou_ponderada
+  dir_salida: results/slippage_validation_split/exp05_perdidas_ciou_ponderada

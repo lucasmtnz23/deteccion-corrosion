@@ -206,10 +206,11 @@ def main() -> None:
         description="Evalúa ajuste NMS/confianza, TTA y Ensemble WBF."
     )
     sub = parser.add_subparsers(dest="modo", required=True)
+    dir_resultados = Path("results/slippage_validation_split")
 
     p_nms = sub.add_parser("nms", help="Barrido de NMS y umbral de confianza.")
     p_nms.add_argument("--checkpoint", type=Path, required=True)
-    p_nms.add_argument("--salida", type=Path, default=Path("results/exp06_postprocesado_nms"))
+    p_nms.add_argument("--salida", type=Path, default=dir_resultados / "exp06_postprocesado_nms")
 
     p_tta = sub.add_parser("tta", help="Evaluación con Test-Time Augmentation (WBF).")
     p_tta.add_argument("--checkpoint", type=Path, required=True)
@@ -220,13 +221,13 @@ def main() -> None:
         choices=["original", "hflip", "vflip", "hvflip"],
     )
     p_tta.add_argument("--iou-wbf", type=float, default=0.55)
-    p_tta.add_argument("--salida", type=Path, default=Path("results/exp07_tta_wbf"))
+    p_tta.add_argument("--salida", type=Path, default=dir_resultados / "exp07_tta_wbf")
 
     p_ens = sub.add_parser("ensemble", help="Ensemble WBF a partir de predicciones JSON.")
     p_ens.add_argument("--preds", type=Path, nargs="+", required=True)
     p_ens.add_argument("--pesos", type=float, nargs="+", default=None)
     p_ens.add_argument("--iou-wbf", type=float, default=0.55)
-    p_ens.add_argument("--salida", type=Path, default=Path("results/exp08_ensemble_wbf"))
+    p_ens.add_argument("--salida", type=Path, default=dir_resultados / "exp08_ensemble_wbf")
 
     args = parser.parse_args()
     dispositivo = torch.device("cuda" if torch.cuda.is_available() else "cpu")

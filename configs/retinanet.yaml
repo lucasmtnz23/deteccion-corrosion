@@ -23,4 +23,4 @@ entrenamiento:
   clip_grad_norm: 10.0
   usar_amp: true
   metrica_seleccion: map
-  dir_salida: results/retinanet
+  dir_salida: results/slippage_validation_split/retinanet

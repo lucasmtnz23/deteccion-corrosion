@@ -1,15 +1,18 @@
 """Carga de Corrosion-bi3q3 para los detectores de torchvision."""
 
+import json
 from math import isfinite
 from pathlib import Path
 
 import numpy as np
 import torch
-from datasets import load_from_disk
+from datasets import concatenate_datasets, load_from_disk
 from torch.utils.data import Dataset
 
 
-RUTA_DATOS = Path(__file__).resolve().parents[1] / "data" / "corrosion-bi3q3"
+RAIZ_PROYECTO = Path(__file__).resolve().parents[1]
+RUTA_DATOS = RAIZ_PROYECTO / "data" / "corrosion-bi3q3"
+RUTA_MANIFIESTO = RAIZ_PROYECTO / "configs" / "particiones" / "slippage_validation_split.json"
 PARTICIONES = ("train", "validation", "test")
 
 # Los IDs originales 1, 2 y 3 ya son consecutivos. El ID original 0
@@ -17,8 +20,20 @@ PARTICIONES = ("train", "validation", "test")
 NOMBRES_CLASES = {1: "Slippage", 2: "corrosion", 3: "crack"}
 
 
+def _indices_trasladados(train):
+    with RUTA_MANIFIESTO.open(encoding="utf-8") as archivo:
+        ids_manifiesto = json.load(archivo)["image_ids_train"]
+    ids_trasladados = set(ids_manifiesto)
+    indices = [i for i, id_original in enumerate(train["image_id"]) if id_original in ids_trasladados]
+    if not len(ids_manifiesto) == len(ids_trasladados) == len(indices) == 20:
+        raise ValueError("El manifiesto debe identificar 20 imágenes únicas del train original.")
+    if any(1 not in objetos["category"] for objetos in train.select(indices)["objects"]):
+        raise ValueError("Todas las imágenes del manifiesto deben contener Slippage.")
+    return indices
+
+
 class CorrosionDataset(Dataset):
-    """Devuelve pares de imagen RGB y anotaciones para una partición original.
+    """Devuelve pares de imagen RGB y anotaciones para una partición corregida.
 
     La transformación opcional recibe ``(imagen, anotaciones)`` tras convertir
     ambos a tensores y devuelve el par transformado. Si cambia la geometría,
@@ -33,9 +48,23 @@ class CorrosionDataset(Dataset):
         self.datos = datos[particion]
         self.particion = particion
         self.transformacion = transformacion
-        # Los IDs de origen empiezan en cero en cada partición.
+        # Los desplazamientos se calculan con las particiones de origen para conservar los IDs.
         anteriores = PARTICIONES[:PARTICIONES.index(particion)]
-        self.desplazamiento_id = sum(len(datos[nombre]) for nombre in anteriores)
+        desplazamiento = sum(len(datos[nombre]) for nombre in anteriores)
+        self._ids_evaluacion = [id_original + desplazamiento for id_original in self.datos["image_id"]]
+
+        if particion != "test":
+            indices_trasladados = _indices_trasladados(datos["train"])
+            if particion == "train":
+                trasladados = set(indices_trasladados)
+                restantes = [i for i in range(len(self.datos)) if i not in trasladados]
+                self.datos = self.datos.select(restantes)
+                self._ids_evaluacion = [self._ids_evaluacion[i] for i in restantes]
+            else:
+                trasladadas = datos["train"].select(indices_trasladados)
+                self.datos = concatenate_datasets([self.datos, trasladadas])
+                # Las filas trasladadas conservan el desplazamiento cero de train.
+                self._ids_evaluacion.extend(trasladadas["image_id"])
 
     def __len__(self):
         return len(self.datos)
@@ -80,7 +109,7 @@ class CorrosionDataset(Dataset):
         anotaciones = {
             "boxes": cajas,
             "labels": torch.tensor(etiquetas, dtype=torch.int64),
-            "image_id": torch.tensor(id_original + self.desplazamiento_id, dtype=torch.int64),
+            "image_id": torch.tensor(self._ids_evaluacion[indice], dtype=torch.int64),
             "area": dimensiones[:, 0] * dimensiones[:, 1],
             "iscrowd": torch.zeros(len(cajas), dtype=torch.int64),
         }
