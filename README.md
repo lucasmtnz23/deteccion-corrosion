@@ -22,7 +22,7 @@ El objetivo es establecer un rendimiento de referencia (*baseline*), experimenta
 
 ## Instalación y ejecución
 
-El proyecto utiliza Python y [uv](https://docs.astral.sh/uv/) para gestionar las dependencias y el entorno virtual.
+El proyecto utiliza Python 3.12 y [uv](https://docs.astral.sh/uv/) para gestionar las dependencias y el entorno virtual.
 
 ### 1. Instalar uv
 
@@ -68,9 +68,9 @@ Contiene 1.249 imágenes divididas en:
 
 | Partición | Imágenes |
 |---|---:|
-| Entrenamiento | 840 |
-| Validación | 105 |
-| Test | 304 |
+| Entrenamiento (`train`) | 840 |
+| Validación (`validation`) | 105 |
+| Test (`test`) | 304 |
 
 Para descargarlo, ejecutar:
 
@@ -81,5 +81,23 @@ uv run python scripts/descargar_datos.py
 El script descarga el dataset desde Hugging Face y lo guarda en `data/corrosion-bi3q3/`.
 
 La carpeta `data/` está incluida en `.gitignore`.
+
+### 4. Cargar un lote de imágenes y anotaciones
+
+Ejecuta este ejemplo desde la raíz del proyecto con `uv run python`. Puedes seleccionar cualquiera de las tres particiones de la tabla.
+
+```python
+from torch.utils.data import DataLoader
+
+from src.dataset import CorrosionDataset, collate_fn
+
+datos = CorrosionDataset("train")
+cargador = DataLoader(datos, batch_size=2, collate_fn=collate_fn)
+imagenes, anotaciones = next(iter(cargador))
+```
+
+Cada imagen es un tensor RGB `float32` con forma `[3, H, W]` y valores entre 0 y 1. Cada anotación contiene las cajas en formato `xyxy` y sus etiquetas. `collate_fn` conserva cada imagen y su diccionario de anotaciones, de modo que un lote admite cantidades distintas de objetos por imagen, incluidas imágenes sin objetos.
+
+El mapeo de etiquetas es `0` para fondo, `1` para `Slippage`, `2` para `corrosion` y `3` para `crack`. La categoría original `corrosion-0` carece de anotaciones en las tres particiones.
 
 ---
