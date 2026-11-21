@@ -19,7 +19,11 @@ def crear_modelo(nombre: str, **kwargs):
         from src.modelos.faster_rcnn import crear_faster_rcnn
 
         return crear_faster_rcnn(**kwargs)
-    raise ValueError(f"Modelo desconocido: {nombre!r}. Disponibles: 'faster_rcnn'.")
+    if nombre_normalizado == "retinanet":
+        from src.modelos.retinanet import crear_retinanet
+
+        return crear_retinanet(**kwargs)
+    raise ValueError(f"Modelo desconocido: {nombre!r}. Disponibles: 'faster_rcnn', 'retinanet'.")
 
 
 __all__ = [
