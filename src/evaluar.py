@@ -96,8 +96,15 @@ def calcular_curvas_pr(
                 fp[i] = 1.0
                 continue
             ious = _iou_entre_cajas(caja_p[None, :], cajas_gt_c)[0]
-            mejor_j = int(np.argmax(ious))
-            if ious[mejor_j] >= iou_thr and not emparejados[idx_img][mejor_j]:
+
+            # Buscar GT válidos que todavía no hayan sido emparejados.
+            disponibles = np.where(
+                (ious >= iou_thr) & (~emparejados[idx_img])
+            )[0]
+
+            if len(disponibles) > 0:
+                # Elegir la caja disponible con mayor IoU.
+                mejor_j = disponibles[np.argmax(ious[disponibles])]
                 tp[i] = 1.0
                 emparejados[idx_img][mejor_j] = True
             else:
