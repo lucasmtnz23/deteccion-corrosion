@@ -111,13 +111,58 @@ Las 20 imágenes trasladadas aportan 49 anotaciones de `Slippage` (entre 1 y 4 p
 
 ### Repetir los experimentos con el reparto corregido
 
-Los checkpoints, historiales y métricas de las ejecuciones anteriores corresponden al reparto original. Hay que reentrenar ambos modelos con el reparto corregido y volver a generar las métricas y predicciones antes de comparar los resultados. Las configuraciones y notebooks usan `results/slippage_validation_split/` para las nuevas ejecuciones.
+Los checkpoints, historiales y métricas del reparto original deben regenerarse con el reparto corregido. Las configuraciones y notebooks usan `results/slippage_validation_split/` para estas ejecuciones.
+
+Para Faster R-CNN v2, entrena el baseline y sigue las instrucciones de su [notebook](notebooks/resultados_faster_rcnn.ipynb).
 
 ```bash
-uv run --locked python -m src.entrenar --config configs/faster_rcnn.yaml
-uv run --locked python -m src.entrenar --config configs/retinanet.yaml
+uv run --locked python -m src.entrenar --config configs/faster_rcnn.yaml --sin-test
 ```
 
-Los notebooks indican cómo generar métricas detalladas de validación y repetir los experimentos de mejora y posprocesado con los nuevos checkpoints.
+#### RetinaNet v2
+
+Desde la raíz del repositorio, con el entorno y el dataset preparados, entrena el baseline y las cuatro variantes. Los YAML fijan la semilla 42. Usa `--sin-test` para reservar la partición de test hasta la evaluación final.
+
+```bash
+uv run --locked python -m src.entrenar --config configs/retinanet.yaml --sin-test
+
+for experimento in retinanet_exp01_aumentos retinanet_exp02_resolucion retinanet_exp02_resolucion_20ep retinanet_exp03_sgd; do
+  uv run --locked python -m src.entrenar --config "configs/experimentos/${experimento}.yaml" --sin-test
+done
+```
+
+Genera las métricas detalladas y las predicciones de los mejores checkpoints en validación. El [notebook de RetinaNet](notebooks/resultados_retinanet.ipynb) lee estos resultados. Su sección 5 mide el efecto del TTA sobre el checkpoint de E2 a 960 px y 20 épocas, con el mismo protocolo de latencia para las dos variantes.
+
+```bash
+for experimento in retinanet retinanet_exp01_aumentos retinanet_exp02_resolucion retinanet_exp02_resolucion_20ep retinanet_exp03_sgd; do
+  salida="results/slippage_validation_split/${experimento}"
+  uv run --locked python -m src.evaluar \
+    --checkpoint "${salida}/mejor_modelo.pth" \
+    --particion validation \
+    --batch-size 4 \
+    --guardar "${salida}/metricas_validation.json" \
+    --guardar-preds "${salida}/predicciones_validation.json"
+done
+```
+
+Una vez fijada la configuración en validación, evalúa en test el checkpoint seleccionado de E2 con una vista y con TTA. El segundo comando aplica la vista original y el volteo horizontal con WBF a IoU 0,55. El CLI de TTA usa test y escribe `metricas_test.json` y `predicciones_test.json` en el directorio indicado.
+
+```bash
+salida="results/slippage_validation_split/retinanet_exp02_resolucion_20ep"
+uv run --locked python -m src.evaluar \
+  --checkpoint "${salida}/mejor_modelo.pth" \
+  --particion test \
+  --batch-size 4 \
+  --guardar "${salida}/metricas_test_final.json" \
+  --guardar-preds "${salida}/predicciones_test.json"
+
+uv run --locked python -m scripts.evaluar_postprocesado tta \
+  --checkpoint "${salida}/mejor_modelo.pth" \
+  --vistas original hflip \
+  --iou-wbf 0.55 \
+  --salida "${salida}_tta"
+```
+
+Los tiempos de test describen dos modos de ejecución. La vista única mide el pase del modelo en lotes de cuatro y omite el primer lote. TTA mide imagen a imagen, incluye las transferencias y WBF, y omite la primera imagen. Usa la comparación de la sección 5 del notebook para estimar el coste adicional de TTA bajo un protocolo común.
 
 ---
