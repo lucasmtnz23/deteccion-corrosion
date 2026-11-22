@@ -49,7 +49,7 @@ uv --version
 Desde la raíz del repositorio, instalar las dependencias:
 
 ```bash
-uv sync
+uv sync --locked
 ```
 
 Este comando crea automáticamente el entorno virtual `.venv` e instala las dependencias definidas en el proyecto.
@@ -67,7 +67,7 @@ El dataset utilizado es [Corrosion-bi3q3](https://huggingface.co/datasets/France
 Para descargarlo, ejecutar:
 
 ```bash
-uv run python scripts/descargar_datos.py
+uv run --locked python scripts/descargar_datos.py
 ```
 
 El script descarga el dataset desde Hugging Face y lo guarda en `data/corrosion-bi3q3/`.
@@ -121,7 +121,9 @@ uv run --locked python -m src.entrenar --config configs/faster_rcnn.yaml --sin-t
 
 #### RetinaNet v2
 
-Desde la raíz del repositorio, con el entorno y el dataset preparados, entrena el baseline y las cuatro variantes. Los YAML fijan la semilla 42. Usa `--sin-test` para reservar la partición de test hasta la evaluación final.
+Desde la raíz del repositorio, con el entorno y el dataset preparados, ejecuta los bloques en Bash para entrenar el baseline y las cuatro variantes. Usa `--sin-test` para reservar la partición de test hasta la evaluación final.
+
+Cada YAML fija la semilla 42. El entrenamiento aplica esa semilla a Python, NumPy y PyTorch, incluida CUDA cuando está disponible. El hardware y las operaciones de GPU pueden introducir pequeñas diferencias entre ejecuciones. Los tiempos dependen también del dispositivo.
 
 ```bash
 uv run --locked python -m src.entrenar --config configs/retinanet.yaml --sin-test
@@ -145,6 +147,8 @@ for experimento in retinanet retinanet_exp01_aumentos retinanet_exp02_resolucion
 done
 ```
 
+Abre el notebook en Jupyter o en un editor compatible y selecciona el Python de `.venv` (`.venv/bin/python` en Linux y macOS, `.venv/Scripts/python.exe` en Windows). Ejecuta las celdas en orden hasta la sección 5 para reproducir las figuras, la comparación en validación y la prueba de TTA. Las figuras se guardan en `results/slippage_validation_split/figuras_retinanet/`.
+
 Una vez fijada la configuración en validación, evalúa en test el checkpoint seleccionado de E2 con una vista y con TTA. El segundo comando aplica la vista original y el volteo horizontal con WBF a IoU 0,55. El CLI de TTA usa test y escribe `metricas_test.json` y `predicciones_test.json` en el directorio indicado.
 
 ```bash
@@ -163,6 +167,6 @@ uv run --locked python -m scripts.evaluar_postprocesado tta \
   --salida "${salida}_tta"
 ```
 
-Los tiempos de test describen dos modos de ejecución. La vista única mide el pase del modelo en lotes de cuatro y omite el primer lote. TTA mide imagen a imagen, incluye las transferencias y WBF, y omite la primera imagen. Usa la comparación de la sección 5 del notebook para estimar el coste adicional de TTA bajo un protocolo común.
+Vuelve a ejecutar la celda de evaluación final del notebook para cargar los dos JSON de test. La vista única mide el pase del modelo en lotes de cuatro y omite el primer lote. TTA mide imagen a imagen, incluye las transferencias y WBF, y omite la primera imagen. Usa la comparación de la sección 5 del notebook para estimar el coste adicional de TTA bajo un protocolo común.
 
 ---
