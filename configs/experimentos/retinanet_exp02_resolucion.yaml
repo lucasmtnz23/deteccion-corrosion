@@ -1,0 +1,24 @@
+modelo:
+  nombre: retinanet
+  num_clases: 4
+  preentrenado: true
+  capas_entrenables_backbone: 3
+  tamano_min: 960
+  tamano_max: 1333
+datos:
+  batch_size: 2
+  num_workers: 0
+  volteo_horizontal: 0.5
+entrenamiento:
+  semilla: 42
+  epocas: 12
+  optimizador: adamw
+  lr: 0.0001
+  weight_decay: 0.0001
+  momentum: 0.9
+  warmup_epocas: 1
+  pasos_acumulacion: 4
+  clip_grad_norm: 10.0
+  usar_amp: true
+  metrica_seleccion: map
+  dir_salida: results/slippage_validation_split/retinanet_exp02_resolucion
