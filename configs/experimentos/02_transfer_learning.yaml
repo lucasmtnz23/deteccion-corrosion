@@ -1,8 +1,9 @@
 # Estrategia 2: Transfer Learning (descongelado progresivo + LR diferenciada)
 # Hipótesis: entrenar primero solo FPN/RPN/cabeza RoI (2 épocas con backbone
 # congelado) evita destruir los filtros preentrenados en COCO con gradientes
-# ruidosos de la cabeza recién inicializada; después se descongelan los 5 bloques
-# de ResNet-50 con una tasa 10x menor en el backbone (factor_lr_backbone=0.1).
+# ruidosos de la cabeza recién inicializada; después se descongelan los 3 bloques
+# superiores de ResNet-50 (layer2–layer4, en igualdad con el baseline) con una
+# tasa 10x menor en el backbone (factor_lr_backbone=0.1).
 
 modelo:
   nombre: faster_rcnn
@@ -19,13 +20,13 @@ datos:
 
 entrenamiento:
   semilla: 42
-  epocas: 12
+  epocas: 8
   optimizador: adamw
   scheduler: cosine
   lr: 0.00015
   factor_lr_backbone: 0.1
   descongelar_en_epoca: 3
-  capas_tras_descongelar: 5
+  capas_tras_descongelar: 3
   weight_decay: 0.0001
   warmup_epocas: 1
   pasos_acumulacion: 4

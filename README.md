@@ -120,4 +120,29 @@ uv run --locked python -m src.entrenar --config configs/retinanet.yaml
 
 Los notebooks indican cómo generar métricas detalladas de validación y repetir los experimentos de mejora y posprocesado con los nuevos checkpoints.
 
+### Experimentos de mejora y evaluación de Faster R-CNN v2
+
+```bash
+# Baseline (12 épocas) + evaluación en validación
+uv run --locked python -m src.entrenar --config configs/faster_rcnn.yaml --sin-test
+uv run --locked python -m src.evaluar \
+  --checkpoint results/slippage_validation_split/faster_rcnn/mejor_modelo.pth \
+  --particion validation \
+  --guardar results/slippage_validation_split/faster_rcnn/metricas_validation.json \
+  --guardar-preds results/slippage_validation_split/faster_rcnn/predicciones_validation.json
+
+# Estrategias de mejora E1–E4 (8 épocas cada una)
+uv run --locked python -m src.entrenar --config configs/experimentos/01_data_augmentation.yaml --sin-test
+uv run --locked python -m src.entrenar --config configs/experimentos/02_transfer_learning.yaml --sin-test
+uv run --locked python -m src.entrenar --config configs/experimentos/03_sgd_optimizacion.yaml --sin-test
+uv run --locked python -m src.entrenar --config configs/experimentos/04_anchors_resolucion.yaml --sin-test
+uv run --locked python -m src.entrenar --config configs/experimentos/05_perdidas_ciou_ponderada.yaml --sin-test
+
+# Post-procesado (E5a NMS/confianza, E5b TTA WBF) y Ensemble WBF (E6)
+uv run --locked python -m scripts.evaluar_postprocesado nms --checkpoint results/slippage_validation_split/faster_rcnn/mejor_modelo.pth
+uv run --locked python -m scripts.evaluar_postprocesado tta --checkpoint results/slippage_validation_split/faster_rcnn/mejor_modelo.pth --particion validation --vistas original hflip
+```
+
+El resumen completo de resultados, figuras y análisis por estrategia se encuentra ejecutado en `notebooks/resultados_faster_rcnn.ipynb`.
+
 ---

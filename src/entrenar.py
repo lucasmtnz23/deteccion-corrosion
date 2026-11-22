@@ -171,7 +171,7 @@ def entrenar_epoca(
     return {k: v / lotes_validos for k, v in acumulado_perdidas.items()}
 
 
-def entrenar(config: dict, evaluar_test: bool = True) -> Path:
+def entrenar(config: dict, evaluar_test: bool = True, reanudar: bool = False) -> Path:
     """Ejecuta el flujo completo de fine-tuning, validación y evaluación en test."""
     cfg_modelo = dict(config["modelo"])
     cfg_datos = config.get("datos", {})
@@ -243,9 +243,45 @@ def entrenar(config: dict, evaluar_test: bool = True) -> Path:
     mejor_valor = -1.0
     mejor_epoca = 0
     historial: list[dict] = []
+    epoca_inicio = 1
+
+    if reanudar and ruta_ultimo.exists():
+        print(f"Reanudando entrenamiento desde {ruta_ultimo}...")
+        ckpt_prev = torch.load(ruta_ultimo, map_location=dispositivo, weights_only=False)
+        epoca_prev = int(ckpt_prev["epoca"])
+        if descongelar_en_epoca is not None and epoca_prev >= int(descongelar_en_epoca):
+            establecer_capas_entrenables_backbone(modelo, capas_tras_descongelar)
+            optimizador = crear_optimizador(modelo, cfg_ent)
+            epocas_restantes = epocas - int(descongelar_en_epoca) + 1
+            cfg_rest = dict(cfg_ent, warmup_epocas=1)
+            scheduler = crear_scheduler(optimizador, epocas=epocas_restantes, cfg_ent=cfg_rest)
+            pasos_sched = epoca_prev - int(descongelar_en_epoca) + 1
+        else:
+            pasos_sched = epoca_prev
+
+        modelo.load_state_dict(ckpt_prev["modelo_state_dict"])
+        optimizador.load_state_dict(ckpt_prev["optimizador_state_dict"])
+        for _ in range(pasos_sched):
+            scheduler.step()
+
+        ruta_hist = dir_salida / "historial.json"
+        if ruta_hist.exists():
+            with open(ruta_hist, encoding="utf-8") as archivo:
+                historial = json.load(archivo)
+            for reg in historial:
+                val_reg = float(reg["metricas_val"][metrica_seleccion])
+                if val_reg > mejor_valor:
+                    mejor_valor = val_reg
+                    mejor_epoca = int(reg["epoca"])
+
+        epoca_inicio = epoca_prev + 1
+        print(
+            f"  -> Retomando en época {epoca_inicio}/{epocas} "
+            f"(mejor previo: época {mejor_epoca}, {metrica_seleccion}={mejor_valor:.4f})."
+        )
 
     inicio_total = time.perf_counter()
-    for epoca in range(1, epocas + 1):
+    for epoca in range(epoca_inicio, epocas + 1):
         if descongelar_en_epoca is not None and epoca == int(descongelar_en_epoca):
             establecer_capas_entrenables_backbone(modelo, capas_tras_descongelar)
             totales, entrenables = contar_parametros(modelo)
@@ -322,9 +358,11 @@ def entrenar(config: dict, evaluar_test: bool = True) -> Path:
         with open(dir_salida / "historial.json", "w", encoding="utf-8") as archivo:
             json.dump(historial, archivo, indent=2, ensure_ascii=False)
 
-    tiempo_total = time.perf_counter() - inicio_total
+    tiempo_sesion = time.perf_counter() - inicio_total
+    tiempo_total = sum(float(h.get("duracion_s", 0.0)) for h in historial) or tiempo_sesion
     print(
-        f"\nEntrenamiento completado en {tiempo_total / 60:.1f} min. "
+        f"\nEntrenamiento completado en {tiempo_total / 60:.1f} min "
+        f"(esta sesión: {tiempo_sesion / 60:.1f} min). "
         f"Mejor época: {mejor_epoca} ({metrica_seleccion}={mejor_valor:.4f})."
     )
 
@@ -395,6 +433,11 @@ def main() -> None:
         action="store_true",
         help="Omite la evaluación final sobre la partición de test.",
     )
+    parser.add_argument(
+        "--reanudar",
+        action="store_true",
+        help="Reanuda el entrenamiento desde ultimo_modelo.pth si existe en dir_salida.",
+    )
     args = parser.parse_args()
 
     with open(args.config, encoding="utf-8") as archivo:
@@ -409,7 +452,7 @@ def main() -> None:
     if args.salida is not None:
         config.setdefault("entrenamiento", {})["dir_salida"] = str(args.salida)
 
-    entrenar(config, evaluar_test=not args.sin_test)
+    entrenar(config, evaluar_test=not args.sin_test, reanudar=args.reanudar)
 
 
 if __name__ == "__main__":
