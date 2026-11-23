@@ -149,7 +149,7 @@ done
 
 Abre el notebook en Jupyter o en un editor compatible y selecciona el Python de `.venv` (`.venv/bin/python` en Linux y macOS, `.venv/Scripts/python.exe` en Windows). Ejecuta las celdas en orden hasta la sección 5 para reproducir las figuras, la comparación en validación y la prueba de TTA. Las figuras se guardan en `results/slippage_validation_split/figuras_retinanet/`.
 
-Una vez fijada la configuración en validación, evalúa en test el checkpoint seleccionado de E2 con una vista y con TTA. El segundo comando aplica la vista original y el volteo horizontal con WBF a IoU 0,55. El CLI de TTA usa test y escribe `metricas_test.json` y `predicciones_test.json` en el directorio indicado.
+Una vez fijada la configuración en validación, evalúa en test el checkpoint seleccionado de E2 con una vista y con TTA. El segundo comando aplica la vista original y el volteo horizontal con WBF a IoU 0,55. El CLI de TTA usa test y escribe `metricas_test_final.json` y `predicciones_test.json` en el directorio indicado.
 
 ```bash
 salida="results/slippage_validation_split/retinanet_exp02_resolucion_20ep"
@@ -162,6 +162,7 @@ uv run --locked python -m src.evaluar \
 
 uv run --locked python -m scripts.evaluar_postprocesado tta \
   --checkpoint "${salida}/mejor_modelo.pth" \
+  --particion test \
   --vistas original hflip \
   --iou-wbf 0.55 \
   --salida "${salida}_tta"
@@ -187,9 +188,42 @@ uv run --locked python -m src.entrenar --config configs/experimentos/03_sgd_opti
 uv run --locked python -m src.entrenar --config configs/experimentos/04_anchors_resolucion.yaml --sin-test
 uv run --locked python -m src.entrenar --config configs/experimentos/05_perdidas_ciou_ponderada.yaml --sin-test
 
+# Evaluación detallada de los cinco experimentos en validación
+for experimento in \
+  exp01_data_augmentation \
+  exp02_transfer_learning \
+  exp03_sgd_multistep \
+  exp04_anchors_resolucion \
+  exp05_perdidas_ciou_ponderada
+do
+  salida="results/slippage_validation_split/${experimento}"
+
+  uv run --locked python -m src.evaluar \
+    --checkpoint "${salida}/mejor_modelo.pth" \
+    --particion validation \
+    --batch-size 4 \
+    --guardar "${salida}/metricas_validation.json" \
+    --guardar-preds "${salida}/predicciones_validation.json"
+done
+
 # Post-procesado sobre el ganador de validación (E1): E5a (NMS/confianza) y E5b (TTA 3 vistas WBF)
 uv run --locked python -m scripts.evaluar_postprocesado nms --checkpoint results/slippage_validation_split/exp01_data_augmentation/mejor_modelo.pth
 uv run --locked python -m scripts.evaluar_postprocesado tta --checkpoint results/slippage_validation_split/exp01_data_augmentation/mejor_modelo.pth --particion validation --vistas original hflip vflip
+# Generar predicciones finales de test para los tres modelos de E6
+for experimento in \
+  exp01_data_augmentation \
+  exp04_anchors_resolucion \
+  exp05_perdidas_ciou_ponderada
+do
+  salida="results/slippage_validation_split/${experimento}"
+
+  uv run --locked python -m src.evaluar \
+    --checkpoint "${salida}/mejor_modelo.pth" \
+    --particion test \
+    --batch-size 4 \
+    --guardar "${salida}/metricas_test_final.json" \
+    --guardar-preds "${salida}/predicciones_test.json"
+done
 
 # Ensemble WBF intra-arquitectura E6 (E1 + E3b + E4, pesos iguales 1:1:1)
 uv run --locked python -m scripts.evaluar_postprocesado ensemble \
