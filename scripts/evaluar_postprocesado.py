@@ -30,9 +30,10 @@ def ejecutar_barrido_nms(
     umbrales_score: list[float],
     batch_size: int = 4,
     usar_amp: bool = True,
+    evaluar_test: bool = False,
 ) -> dict:
     """Busca los mejores ``box_nms_thresh`` y ``box_score_thresh`` sobre validación
-    y evalúa la mejor combinación sobre test."""
+    (devolviendo métricas detalladas de validación y opcionalmente de test)."""
     ds_val = CorrosionDataset("validation")
     cargador_val = DataLoader(ds_val, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
@@ -70,32 +71,47 @@ def ejecutar_barrido_nms(
                 mejor_map = met["map"]
                 mejor_cfg = {"nms_thresh": nms_thr, "score_thresh": score_thr}
 
-    # Evaluar la mejor configuración en test.
+    # Evaluación detallada de la mejor configuración en validación.
     modelo.roi_heads.nms_thresh = mejor_cfg["nms_thresh"]
     modelo.roi_heads.score_thresh = mejor_cfg["score_thresh"]
-    ds_test = CorrosionDataset("test")
-    cargador_test = DataLoader(ds_test, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
-    metricas_test, preds_test, objs_test = evaluar_modelo(
+    metricas_val, preds_val, objs_val = evaluar_modelo(
         modelo,
-        cargador_test,
+        cargador_val,
         dispositivo,
         usar_amp=usar_amp,
         detallado=True,
         devolver_predicciones=True,
     )
 
+    salida = {
+        "mejor_config": mejor_cfg,
+        "mejor_val_map": mejor_map,
+        "barrido_val": resultados_val,
+        "validation": metricas_val,
+        "_preds_val": preds_val,
+        "_objs_val": objs_val,
+    }
+
+    if evaluar_test:
+        ds_test = CorrosionDataset("test")
+        cargador_test = DataLoader(ds_test, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
+        metricas_test, preds_test, objs_test = evaluar_modelo(
+            modelo,
+            cargador_test,
+            dispositivo,
+            usar_amp=usar_amp,
+            detallado=True,
+            devolver_predicciones=True,
+        )
+        salida["test"] = metricas_test
+        salida["_preds_test"] = preds_test
+        salida["_objs_test"] = objs_test
+
     # Restaurar valores originales del modelo.
     modelo.roi_heads.nms_thresh = nms_orig
     modelo.roi_heads.score_thresh = score_orig
 
-    return {
-        "mejor_config": mejor_cfg,
-        "mejor_val_map": mejor_map,
-        "barrido_val": resultados_val,
-        "test": metricas_test,
-        "_preds_test": preds_test,
-        "_objs_test": objs_test,
-    }
+    return salida
 
 
 def ejecutar_tta(
@@ -210,10 +226,12 @@ def main() -> None:
 
     p_nms = sub.add_parser("nms", help="Barrido de NMS y umbral de confianza.")
     p_nms.add_argument("--checkpoint", type=Path, required=True)
+    p_nms.add_argument("--evaluar-test", action="store_true", help="También evalúa la mejor config en test.")
     p_nms.add_argument("--salida", type=Path, default=dir_resultados / "exp06_postprocesado_nms")
 
     p_tta = sub.add_parser("tta", help="Evaluación con Test-Time Augmentation (WBF).")
     p_tta.add_argument("--checkpoint", type=Path, required=True)
+    p_tta.add_argument("--particion", choices=["validation", "test"], default="validation")
     p_tta.add_argument(
         "--vistas",
         nargs="+",
@@ -225,6 +243,7 @@ def main() -> None:
 
     p_ens = sub.add_parser("ensemble", help="Ensemble WBF a partir de predicciones JSON.")
     p_ens.add_argument("--preds", type=Path, nargs="+", required=True)
+    p_ens.add_argument("--particion", choices=["validation", "test"], default="test")
     p_ens.add_argument("--pesos", type=float, nargs="+", default=None)
     p_ens.add_argument("--iou-wbf", type=float, default=0.55)
     p_ens.add_argument("--salida", type=Path, default=dir_resultados / "exp08_ensemble_wbf")
@@ -239,30 +258,61 @@ def main() -> None:
             dispositivo=dispositivo,
             umbrales_nms=[0.30, 0.40, 0.50, 0.60],
             umbrales_score=[0.01, 0.05, 0.15, 0.25],
+            evaluar_test=args.evaluar_test,
         )
-        preds_test = res.pop("_preds_test")
-        objs_test = res.pop("_objs_test")
+        preds_val = res.pop("_preds_val")
+        objs_val = res.pop("_objs_val")
+        preds_test = res.pop("_preds_test", None)
+        objs_test = res.pop("_objs_test", None)
         args.salida.mkdir(parents=True, exist_ok=True)
-        guardar_predicciones(args.salida / "predicciones_test.json", preds_test, objs_test)
-        with open(args.salida / "metricas_test.json", "w", encoding="utf-8") as archivo:
-            json.dump(res, archivo, indent=2, ensure_ascii=False)
+        guardar_predicciones(args.salida / "predicciones_validation.json", preds_val, objs_val)
+        with open(args.salida / "metricas_validation.json", "w", encoding="utf-8") as archivo:
+            json.dump(
+                {
+                    "mejor_config": res["mejor_config"],
+                    "mejor_val_map": res["mejor_val_map"],
+                    "barrido_val": res["barrido_val"],
+                    "validation": res["validation"],
+                },
+                archivo,
+                indent=2,
+                ensure_ascii=False,
+            )
         print(f"\nMejor config en val: {res['mejor_config']} (mAP={res['mejor_val_map']:.4f})")
-        print("\n=== Resultados en test (NMS/score ajustado) ===")
-        print(formatear_metricas(res["test"]))
+        print("\n=== Resultados en validation (NMS/score ajustado) ===")
+        print(formatear_metricas(res["validation"]))
+
+        if preds_test is not None and "test" in res:
+            guardar_predicciones(args.salida / "predicciones_test.json", preds_test, objs_test)
+            with open(args.salida / "metricas_test_final.json", "w", encoding="utf-8") as archivo:
+                json.dump(
+                    {
+                        "mejor_config": res["mejor_config"],
+                        "mejor_val_map": res["mejor_val_map"],
+                        "test": res["test"],
+                    },
+                    archivo,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            print("\n=== Resultados en test (NMS/score ajustado) ===")
+            print(formatear_metricas(res["test"]))
 
     elif args.modo == "tta":
         modelo, _ = cargar_modelo_desde_checkpoint(args.checkpoint, dispositivo)
         metricas, preds, objs = ejecutar_tta(
             modelo=modelo,
             dispositivo=dispositivo,
+            particion=args.particion,
             modos=tuple(args.vistas),
             iou_wbf=args.iou_wbf,
         )
         args.salida.mkdir(parents=True, exist_ok=True)
-        guardar_predicciones(args.salida / "predicciones_test.json", preds, objs)
-        with open(args.salida / "metricas_test.json", "w", encoding="utf-8") as archivo:
-            json.dump({"test": metricas}, archivo, indent=2, ensure_ascii=False)
-        print(f"\n=== Resultados en test (TTA: {'+'.join(args.vistas)}) ===")
+        guardar_predicciones(args.salida / f"predicciones_{args.particion}.json", preds, objs)
+        nombre_met = "metricas_test_final.json" if args.particion == "test" else f"metricas_{args.particion}.json"
+        with open(args.salida / nombre_met, "w", encoding="utf-8") as archivo:
+            json.dump({args.particion: metricas}, archivo, indent=2, ensure_ascii=False)
+        print(f"\n=== Resultados en {args.particion} (TTA: {'+'.join(args.vistas)}) ===")
         print(formatear_metricas(metricas))
 
     elif args.modo == "ensemble":
@@ -270,12 +320,14 @@ def main() -> None:
             rutas_preds=args.preds,
             pesos=args.pesos,
             iou_wbf=args.iou_wbf,
+            particion=args.particion,
         )
         args.salida.mkdir(parents=True, exist_ok=True)
-        guardar_predicciones(args.salida / "predicciones_test.json", preds, objs)
-        with open(args.salida / "metricas_test.json", "w", encoding="utf-8") as archivo:
-            json.dump({"test": metricas}, archivo, indent=2, ensure_ascii=False)
-        print("\n=== Resultados en test (Ensemble WBF) ===")
+        guardar_predicciones(args.salida / f"predicciones_{args.particion}.json", preds, objs)
+        nombre_met = "metricas_test_final.json" if args.particion == "test" else f"metricas_{args.particion}.json"
+        with open(args.salida / nombre_met, "w", encoding="utf-8") as archivo:
+            json.dump({args.particion: metricas}, archivo, indent=2, ensure_ascii=False)
+        print(f"\n=== Resultados en {args.particion} (Ensemble WBF) ===")
         print(formatear_metricas(metricas))
 
 

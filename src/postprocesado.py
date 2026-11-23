@@ -151,9 +151,10 @@ def predecir_imagen_tta(
         else:
             raise ValueError(f"Modo TTA no soportado: {modo!r}")
 
-    vistas_gpu = [v.to(dispositivo) for v in vistas]
+    salidas = []
     with torch.amp.autocast(device_type=dispositivo.type, enabled=amp_activo):
-        salidas = modelo(vistas_gpu)
+        for v in vistas:
+            salidas.append(modelo([v.to(dispositivo)])[0])
 
     listas_cajas: list[np.ndarray] = []
     listas_scores: list[np.ndarray] = []

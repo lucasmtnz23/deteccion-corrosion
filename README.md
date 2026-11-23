@@ -169,4 +169,37 @@ uv run --locked python -m scripts.evaluar_postprocesado tta \
 
 Vuelve a ejecutar la celda de evaluación final del notebook para cargar los dos JSON de test. La vista única mide el pase del modelo en lotes de cuatro y omite el primer lote. TTA mide imagen a imagen, incluye las transferencias y WBF, y omite la primera imagen. Usa la comparación de la sección 5 del notebook para estimar el coste adicional de TTA bajo un protocolo común.
 
+### Experimentos de mejora y evaluación de Faster R-CNN v2
+
+```bash
+# Baseline (12 épocas) + evaluación en validación
+uv run --locked python -m src.entrenar --config configs/faster_rcnn.yaml --sin-test
+uv run --locked python -m src.evaluar \
+  --checkpoint results/slippage_validation_split/faster_rcnn/mejor_modelo.pth \
+  --particion validation \
+  --guardar results/slippage_validation_split/faster_rcnn/metricas_validation.json \
+  --guardar-preds results/slippage_validation_split/faster_rcnn/predicciones_validation.json
+
+# Estrategias de mejora E1–E4 (12 épocas cada una, comparativa homogénea)
+uv run --locked python -m src.entrenar --config configs/experimentos/01_data_augmentation.yaml --sin-test
+uv run --locked python -m src.entrenar --config configs/experimentos/02_transfer_learning.yaml --sin-test
+uv run --locked python -m src.entrenar --config configs/experimentos/03_sgd_optimizacion.yaml --sin-test
+uv run --locked python -m src.entrenar --config configs/experimentos/04_anchors_resolucion.yaml --sin-test
+uv run --locked python -m src.entrenar --config configs/experimentos/05_perdidas_ciou_ponderada.yaml --sin-test
+
+# Post-procesado sobre el ganador de validación (E1): E5a (NMS/confianza) y E5b (TTA 3 vistas WBF)
+uv run --locked python -m scripts.evaluar_postprocesado nms --checkpoint results/slippage_validation_split/exp01_data_augmentation/mejor_modelo.pth
+uv run --locked python -m scripts.evaluar_postprocesado tta --checkpoint results/slippage_validation_split/exp01_data_augmentation/mejor_modelo.pth --particion validation --vistas original hflip vflip
+
+# Ensemble WBF intra-arquitectura E6 (E1 + E3b + E4, pesos iguales 1:1:1)
+uv run --locked python -m scripts.evaluar_postprocesado ensemble \
+  --particion test \
+  --preds results/slippage_validation_split/exp01_data_augmentation/predicciones_test.json \
+          results/slippage_validation_split/exp04_anchors_resolucion/predicciones_test.json \
+          results/slippage_validation_split/exp05_perdidas_ciou_ponderada/predicciones_test.json \
+  --pesos 1.0 1.0 1.0 --iou-wbf 0.55
+```
+
+El resumen completo de resultados, figuras y análisis por estrategia se encuentra ejecutado en [`notebooks/resultados_faster_rcnn.ipynb`](notebooks/resultados_faster_rcnn.ipynb) y resumido en la presentación [`Presentacion_Faster_RCNN_Corrosion.pptx`](Presentacion_Faster_RCNN_Corrosion.pptx).
+
 ---
