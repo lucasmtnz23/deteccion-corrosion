@@ -18,10 +18,10 @@ datos:
 
 entrenamiento:
   semilla: 42
-  epocas: 8
+  epocas: 12
   optimizador: sgd
   scheduler: multistep
-  milestones: [5, 7]
+  milestones: [8, 11]
   gamma: 0.1
   lr: 0.005
   momentum: 0.9
