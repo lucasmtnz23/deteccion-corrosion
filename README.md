@@ -180,18 +180,26 @@ uv run --locked python -m src.evaluar \
   --guardar results/slippage_validation_split/faster_rcnn/metricas_validation.json \
   --guardar-preds results/slippage_validation_split/faster_rcnn/predicciones_validation.json
 
-# Estrategias de mejora E1–E4 (8 épocas cada una)
+# Estrategias de mejora E1–E4 (12 épocas cada una, comparativa homogénea)
 uv run --locked python -m src.entrenar --config configs/experimentos/01_data_augmentation.yaml --sin-test
 uv run --locked python -m src.entrenar --config configs/experimentos/02_transfer_learning.yaml --sin-test
 uv run --locked python -m src.entrenar --config configs/experimentos/03_sgd_optimizacion.yaml --sin-test
 uv run --locked python -m src.entrenar --config configs/experimentos/04_anchors_resolucion.yaml --sin-test
 uv run --locked python -m src.entrenar --config configs/experimentos/05_perdidas_ciou_ponderada.yaml --sin-test
 
-# Post-procesado (E5a NMS/confianza, E5b TTA WBF) y Ensemble WBF (E6)
-uv run --locked python -m scripts.evaluar_postprocesado nms --checkpoint results/slippage_validation_split/faster_rcnn/mejor_modelo.pth
-uv run --locked python -m scripts.evaluar_postprocesado tta --checkpoint results/slippage_validation_split/faster_rcnn/mejor_modelo.pth --particion validation --vistas original hflip
+# Post-procesado sobre el ganador de validación (E1): E5a (NMS/confianza) y E5b (TTA 3 vistas WBF)
+uv run --locked python -m scripts.evaluar_postprocesado nms --checkpoint results/slippage_validation_split/exp01_data_augmentation/mejor_modelo.pth
+uv run --locked python -m scripts.evaluar_postprocesado tta --checkpoint results/slippage_validation_split/exp01_data_augmentation/mejor_modelo.pth --particion validation --vistas original hflip vflip
+
+# Ensemble WBF intra-arquitectura E6 (E1 + E3b + E4, pesos iguales 1:1:1)
+uv run --locked python -m scripts.evaluar_postprocesado ensemble \
+  --particion test \
+  --preds results/slippage_validation_split/exp01_data_augmentation/predicciones_test.json \
+          results/slippage_validation_split/exp04_anchors_resolucion/predicciones_test.json \
+          results/slippage_validation_split/exp05_perdidas_ciou_ponderada/predicciones_test.json \
+  --pesos 1.0 1.0 1.0 --iou-wbf 0.55
 ```
 
-El resumen completo de resultados, figuras y análisis por estrategia se encuentra ejecutado en `notebooks/resultados_faster_rcnn.ipynb`.
+El resumen completo de resultados, figuras y análisis por estrategia se encuentra ejecutado en [`notebooks/resultados_faster_rcnn.ipynb`](notebooks/resultados_faster_rcnn.ipynb) y resumido en la presentación [`Presentacion_Faster_RCNN_Corrosion.pptx`](Presentacion_Faster_RCNN_Corrosion.pptx).
 
 ---
