@@ -14,7 +14,7 @@ from tqdm import tqdm
 from src.dataset import CorrosionDataset, collate_fn
 from src.evaluar import (
     cargar_modelo_desde_checkpoint,
-    cargar_predicciones,
+    cargar_predicciones_alineadas,
     evaluar_modelo,
     evaluar_predicciones,
     formatear_metricas,
@@ -37,8 +37,9 @@ def ejecutar_barrido_nms(
     ds_val = CorrosionDataset("validation")
     cargador_val = DataLoader(ds_val, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
-    nms_orig = modelo.roi_heads.nms_thresh
-    score_orig = modelo.roi_heads.score_thresh
+    postprocesado = getattr(modelo, "roi_heads", modelo)
+    nms_orig = postprocesado.nms_thresh
+    score_orig = postprocesado.score_thresh
 
     resultados_val = []
     mejor_cfg = {"nms_thresh": nms_orig, "score_thresh": score_orig}
@@ -46,8 +47,8 @@ def ejecutar_barrido_nms(
 
     for nms_thr in umbrales_nms:
         for score_thr in umbrales_score:
-            modelo.roi_heads.nms_thresh = nms_thr
-            modelo.roi_heads.score_thresh = score_thr
+            postprocesado.nms_thresh = nms_thr
+            postprocesado.score_thresh = score_thr
             met = evaluar_modelo(
                 modelo,
                 cargador_val,
@@ -72,8 +73,8 @@ def ejecutar_barrido_nms(
                 mejor_cfg = {"nms_thresh": nms_thr, "score_thresh": score_thr}
 
     # Evaluación detallada de la mejor configuración en validación.
-    modelo.roi_heads.nms_thresh = mejor_cfg["nms_thresh"]
-    modelo.roi_heads.score_thresh = mejor_cfg["score_thresh"]
+    postprocesado.nms_thresh = mejor_cfg["nms_thresh"]
+    postprocesado.score_thresh = mejor_cfg["score_thresh"]
     metricas_val, preds_val, objs_val = evaluar_modelo(
         modelo,
         cargador_val,
@@ -108,8 +109,8 @@ def ejecutar_barrido_nms(
         salida["_objs_test"] = objs_test
 
     # Restaurar valores originales del modelo.
-    modelo.roi_heads.nms_thresh = nms_orig
-    modelo.roi_heads.score_thresh = score_orig
+    postprocesado.nms_thresh = nms_orig
+    postprocesado.score_thresh = score_orig
 
     return salida
 
@@ -187,24 +188,22 @@ def ejecutar_ensemble(
     iou_wbf: float = 0.55,
     skip_box_thr: float = 0.05,
     particion: str = "test",
+    max_detecciones: int = 100,
 ) -> tuple[dict, list[dict[str, torch.Tensor]], list[dict[str, torch.Tensor]]]:
     """Combina archivos JSON de predicciones de varios modelos mediante WBF y evalúa."""
-    listas = [cargar_predicciones(ruta) for ruta in rutas_preds]
+    ds = CorrosionDataset(particion)
+    objetivos = [
+        {clave: gt[clave] for clave in ("boxes", "labels", "image_id")}
+        for _, gt in ds
+    ]
+    listas = [cargar_predicciones_alineadas(ruta, objetivos) for ruta in rutas_preds]
     preds_ens = combinar_predicciones_ensemble(
         listas,
         pesos=pesos,
         iou_wbf=iou_wbf,
         skip_box_thr=skip_box_thr,
+        max_detecciones=max_detecciones,
     )
-    ds = CorrosionDataset(particion)
-    objetivos = [
-        {
-            "boxes": ds[i][1]["boxes"].float(),
-            "labels": ds[i][1]["labels"],
-            "image_id": ds[i][1]["image_id"],
-        }
-        for i in range(len(ds))
-    ]
     metricas = evaluar_predicciones(
         preds_ens,
         objetivos,
@@ -247,7 +246,6 @@ def main() -> None:
     p_ens.add_argument("--pesos", type=float, nargs="+", default=None)
     p_ens.add_argument("--iou-wbf", type=float, default=0.55)
     p_ens.add_argument("--salida", type=Path, default=dir_resultados / "exp08_ensemble_wbf")
-
     args = parser.parse_args()
     dispositivo = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

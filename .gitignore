@@ -7,8 +7,16 @@ __pycache__/
 .venv/
 .ipynb_checkpoints/
 
-# Resultados y modelos entrenados
-results/
+# Resultados experimentales
+results/**/*
+!results/**/
+!results/**/metricas*.json
+!results/**/predicciones*.json
+!results/**/historial.json
+!results/**/config_usada.yaml
+/results/_archivo_local/
+
+# Modelos entrenados
 *.pth
 *.pt
 
