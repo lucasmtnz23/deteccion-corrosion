@@ -1310,5 +1310,10 @@
     "precision": 0.6917,
     "recall": 0.6388,
     "f1": 0.6642
+  },
+  "tiempos": {
+    "ms_por_imagen": 101.38,
+    "fps": 9.86,
+    "imagenes_medidas": 300
   }
 }
