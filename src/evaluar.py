@@ -424,10 +424,7 @@ def guardar_predicciones(
         json.dump(registros, archivo)
 
 
-def cargar_predicciones(ruta: Path) -> list[dict[str, torch.Tensor]]:
-    """Carga predicciones previamente guardadas en JSON."""
-    with open(ruta, encoding="utf-8") as archivo:
-        registros = json.load(archivo)
+def _predicciones_a_tensores(registros: list[dict]) -> list[dict[str, torch.Tensor]]:
     return [
         {
             "boxes": torch.tensor(r["boxes"], dtype=torch.float32).reshape(-1, 4),
@@ -436,6 +433,50 @@ def cargar_predicciones(ruta: Path) -> list[dict[str, torch.Tensor]]:
         }
         for r in registros
     ]
+
+
+def cargar_predicciones(ruta: Path) -> list[dict[str, torch.Tensor]]:
+    """Carga predicciones previamente guardadas en JSON."""
+    with open(ruta, encoding="utf-8") as archivo:
+        return _predicciones_a_tensores(json.load(archivo))
+
+
+def cargar_predicciones_alineadas(
+    ruta: Path,
+    objetivos: list[dict[str, torch.Tensor]],
+) -> list[dict[str, torch.Tensor]]:
+    """Valida los image_id del JSON y devuelve las predicciones en orden de anotación."""
+    with ruta.open(encoding="utf-8") as archivo:
+        registros = json.load(archivo)
+    if not isinstance(registros, list):
+        raise ValueError(f"{ruta}: se esperaba una lista de registros de predicción.")
+
+    por_id = {}
+    duplicados = set()
+    for numero, registro in enumerate(registros, start=1):
+        id_imagen = registro.get("image_id") if isinstance(registro, dict) else None
+        if type(id_imagen) is not int:
+            raise ValueError(f"{ruta}: `image_id` ausente o no entero en el registro {numero}.")
+        if id_imagen in por_id:
+            duplicados.add(id_imagen)
+        por_id[id_imagen] = registro
+
+    ids_objetivos = [int(objetivo["image_id"].item()) for objetivo in objetivos]
+    esperados = set(ids_objetivos)
+    if len(esperados) != len(ids_objetivos):
+        raise ValueError(f"{ruta}: las anotaciones de la partición tienen `image_id` duplicados.")
+    ausentes = esperados - por_id.keys()
+    inesperados = por_id.keys() - esperados
+    errores = [
+        f"{tipo}: {sorted(ids)}"
+        for tipo, ids in (
+            ("duplicados", duplicados), ("ausentes", ausentes), ("inesperados", inesperados),
+        )
+        if ids
+    ]
+    if errores:
+        raise ValueError(f"{ruta}: image_id " + ", ".join(errores) + ".")
+    return _predicciones_a_tensores([por_id[id_imagen] for id_imagen in ids_objetivos])
 
 
 def formatear_metricas(metricas: dict) -> str:

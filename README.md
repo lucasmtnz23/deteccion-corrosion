@@ -258,12 +258,23 @@ Después de preparar el entorno y el dataset, ejecuta desde la raíz del proyect
 uv run --locked python -m scripts.comparar_experimentos --modelo ambos
 ```
 
-Usa `--modelo retinanet` o `--modelo faster_rcnn` para ejecutar solo una arquitectura. El script reutiliza checkpoints y resultados completos que encuentre bajo `results/slippage_validation_split/`. Cuando faltan los checkpoints de referencia de los que depende una prueba, los entrena.
+Usa `--modelo retinanet` o `--modelo faster_rcnn` para ejecutar solo una arquitectura. El script comprueba la configuración solicitada contra `config_usada.yaml` y contra la configuración del checkpoint que va a usar. Entrena las variantes nuevas y solo reanuda cuando los checkpoints y el historial existentes permiten continuar con la misma configuración. Si detecta una incompatibilidad, se detiene antes de sobrescribir el entrenamiento. Usa otro directorio de salida para la nueva configuración.
 
 - **RetinaNet** prueba descongelado progresivo, SGD con MultiStepLR, anchors ajustados a 960 px y CIoU con focal ponderada. También evalúa NMS, TTA de dos y tres vistas sobre E2 a 20 épocas, y la fusión de tres RetinaNet (aumentos, anchors ajustados y pérdida ponderada).
 - **Faster R-CNN** prueba 960 px con anchors originales a 12 y 20 épocas, SGD con coseno y TTA de dos vistas sobre el E1 disponible.
 
-El script guarda el historial y la configuración usada por cada entrenamiento, así como `metricas_validation.json` y `predicciones_validation.json`. Para reproducir la prueba adicional en test del checkpoint individual de Faster R-CNN seleccionado tras la ampliación, ejecuta:
+Cada evaluación y postprocesado generado por este script guarda `metricas_validation.json`, `predicciones_validation.json` y `procedencia_validation.json`. La procedencia incluye la partición, las huellas SHA-256 del manifiesto y del dataset de origen, y la identidad del checkpoint cuando corresponde. También registra los parámetros de NMS y TTA. Para WBF registra las huellas de los JSON de entrada en orden de uso, sus pesos y el umbral IoU. Se reutiliza cada resultado si coinciden sus entradas y las huellas de sus dos archivos de salida.
+
+Los JSON antiguos sin procedencia verificable se regeneran. Antes de reemplazar resultados anteriores, el script avisa y guarda una copia en `validaciones_anteriores/`, dentro del directorio de cada variante. La procedencia se escribe para la nueva ejecución.
+
+Para comprobar los resultados existentes en validación con los checkpoints disponibles, usa `--solo-evaluacion`. El script reutiliza las evaluaciones compatibles, regenera las que lo requieran y se detiene si algún entrenamiento está incompleto o es incompatible. Añade `--forzar-evaluacion` para regenerar también las evaluaciones y el postprocesado que ya sean compatibles.
+
+```bash
+uv run --locked python -m scripts.comparar_experimentos --modelo ambos --solo-evaluacion
+uv run --locked python -m scripts.comparar_experimentos --modelo ambos --solo-evaluacion --forzar-evaluacion
+```
+
+Para reproducir la prueba adicional en test del checkpoint individual de Faster R-CNN seleccionado tras la ampliación, ejecuta:
 
 ```bash
 salida="results/slippage_validation_split/faster_rcnn_resolucion_20ep"
@@ -277,7 +288,7 @@ uv run --locked python -m src.evaluar \
 
 ### Ensemble entre Faster R-CNN y RetinaNet
 
-El [notebook del ensemble](notebooks/resultados_ensemble.ipynb) combina E6 de Faster R-CNN con RetinaNet E2 de una o dos vistas. Las dos variantes se evalúan en validación con WBF, pesos 1:1 e IoU 0,55. Solo la fusión con mayor mAP global en validación pasa a test. El notebook alinea las predicciones con las anotaciones por `image_id` y guarda las métricas, predicciones fusionadas y figura en `results/slippage_validation_split/ensemble_interarquitectura/`.
+El notebook del ensemble combina E6 de Faster R-CNN con RetinaNet E2 de una o dos vistas. Las dos variantes se evalúan en validación con WBF, pesos 1:1 e IoU 0,55. Solo la fusión con mayor mAP global en validación pasa a test. El notebook y el comando de ensemble alinean las predicciones con las anotaciones por `image_id` y rechazan IDs duplicados, ausentes o inesperados. El notebook guarda las métricas, predicciones fusionadas y figura en `results/slippage_validation_split/ensemble_interarquitectura/`. [Notebook del ensemble](notebooks/resultados_ensemble.ipynb)
 
 Prepara estas entradas bajo `results/slippage_validation_split/`:
 

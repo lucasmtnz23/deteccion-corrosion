@@ -14,7 +14,7 @@ from tqdm import tqdm
 from src.dataset import CorrosionDataset, collate_fn
 from src.evaluar import (
     cargar_modelo_desde_checkpoint,
-    cargar_predicciones,
+    cargar_predicciones_alineadas,
     evaluar_modelo,
     evaluar_predicciones,
     formatear_metricas,
@@ -188,24 +188,22 @@ def ejecutar_ensemble(
     iou_wbf: float = 0.55,
     skip_box_thr: float = 0.05,
     particion: str = "test",
+    max_detecciones: int = 100,
 ) -> tuple[dict, list[dict[str, torch.Tensor]], list[dict[str, torch.Tensor]]]:
     """Combina archivos JSON de predicciones de varios modelos mediante WBF y evalúa."""
-    listas = [cargar_predicciones(ruta) for ruta in rutas_preds]
+    ds = CorrosionDataset(particion)
+    objetivos = [
+        {clave: gt[clave] for clave in ("boxes", "labels", "image_id")}
+        for _, gt in ds
+    ]
+    listas = [cargar_predicciones_alineadas(ruta, objetivos) for ruta in rutas_preds]
     preds_ens = combinar_predicciones_ensemble(
         listas,
         pesos=pesos,
         iou_wbf=iou_wbf,
         skip_box_thr=skip_box_thr,
+        max_detecciones=max_detecciones,
     )
-    ds = CorrosionDataset(particion)
-    objetivos = [
-        {
-            "boxes": ds[i][1]["boxes"].float(),
-            "labels": ds[i][1]["labels"],
-            "image_id": ds[i][1]["image_id"],
-        }
-        for i in range(len(ds))
-    ]
     metricas = evaluar_predicciones(
         preds_ens,
         objetivos,
@@ -218,7 +216,7 @@ def ejecutar_ensemble(
     return metricas, preds_ens, objetivos
 
 
-def main() -> None:
+def crear_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Evalúa ajuste NMS/confianza, TTA y Ensemble WBF."
     )
@@ -229,6 +227,10 @@ def main() -> None:
     p_nms.add_argument("--checkpoint", type=Path, required=True)
     p_nms.add_argument("--evaluar-test", action="store_true", help="También evalúa la mejor config en test.")
     p_nms.add_argument("--salida", type=Path, default=dir_resultados / "exp06_postprocesado_nms")
+    p_nms.set_defaults(
+        particion="validation", umbrales_nms=[0.30, 0.40, 0.50, 0.60],
+        umbrales_score=[0.01, 0.05, 0.15, 0.25], batch_size=4, usar_amp=True,
+    )
 
     p_tta = sub.add_parser("tta", help="Evaluación con Test-Time Augmentation (WBF).")
     p_tta.add_argument("--checkpoint", type=Path, required=True)
@@ -241,6 +243,7 @@ def main() -> None:
     )
     p_tta.add_argument("--iou-wbf", type=float, default=0.55)
     p_tta.add_argument("--salida", type=Path, default=dir_resultados / "exp07_tta_wbf")
+    p_tta.set_defaults(skip_box_thr=0.05, usar_amp=True)
 
     p_ens = sub.add_parser("ensemble", help="Ensemble WBF a partir de predicciones JSON.")
     p_ens.add_argument("--preds", type=Path, nargs="+", required=True)
@@ -248,8 +251,12 @@ def main() -> None:
     p_ens.add_argument("--pesos", type=float, nargs="+", default=None)
     p_ens.add_argument("--iou-wbf", type=float, default=0.55)
     p_ens.add_argument("--salida", type=Path, default=dir_resultados / "exp08_ensemble_wbf")
+    p_ens.set_defaults(skip_box_thr=0.05, max_detecciones=100)
+    return parser
 
-    args = parser.parse_args()
+
+def main() -> None:
+    args = crear_parser().parse_args()
     dispositivo = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if args.modo == "nms":
@@ -257,8 +264,10 @@ def main() -> None:
         res = ejecutar_barrido_nms(
             modelo=modelo,
             dispositivo=dispositivo,
-            umbrales_nms=[0.30, 0.40, 0.50, 0.60],
-            umbrales_score=[0.01, 0.05, 0.15, 0.25],
+            umbrales_nms=args.umbrales_nms,
+            umbrales_score=args.umbrales_score,
+            batch_size=args.batch_size,
+            usar_amp=args.usar_amp,
             evaluar_test=args.evaluar_test,
         )
         preds_val = res.pop("_preds_val")
@@ -307,6 +316,8 @@ def main() -> None:
             particion=args.particion,
             modos=tuple(args.vistas),
             iou_wbf=args.iou_wbf,
+            skip_box_thr=args.skip_box_thr,
+            usar_amp=args.usar_amp,
         )
         args.salida.mkdir(parents=True, exist_ok=True)
         guardar_predicciones(args.salida / f"predicciones_{args.particion}.json", preds, objs)
@@ -321,7 +332,9 @@ def main() -> None:
             rutas_preds=args.preds,
             pesos=args.pesos,
             iou_wbf=args.iou_wbf,
+            skip_box_thr=args.skip_box_thr,
             particion=args.particion,
+            max_detecciones=args.max_detecciones,
         )
         args.salida.mkdir(parents=True, exist_ok=True)
         guardar_predicciones(args.salida / f"predicciones_{args.particion}.json", preds, objs)
