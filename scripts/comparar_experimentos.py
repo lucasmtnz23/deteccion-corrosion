@@ -174,13 +174,6 @@ def ejecutar_experimentos(
             [directorio for directorio, _ in entradas],
             forzar_evaluacion=forzar_evaluacion or any(entrenado for _, entrenado in entradas),
         )
-    else:
-        aumentos, entrenado = evaluar(cargar_config("01_data_augmentation"))
-        postprocesar(
-            "tta", "faster_rcnn_tta_2_vistas", "--checkpoint", aumentos / "mejor_modelo.pth",
-            "--particion", "validation", "--vistas", "original", "hflip",
-            forzar_evaluacion=forzar_evaluacion or entrenado,
-        )
 
 
 def main() -> None:

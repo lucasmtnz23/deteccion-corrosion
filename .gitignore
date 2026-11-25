@@ -14,6 +14,7 @@ results/**/*
 !results/**/predicciones*.json
 !results/**/historial.json
 !results/**/config_usada.yaml
+/results/_archivo_local/
 
 # Modelos entrenados
 *.pth

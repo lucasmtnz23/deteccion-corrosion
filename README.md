@@ -166,6 +166,8 @@ Vuelve a ejecutar la celda de evaluación final del notebook para cargar los dos
 
 ### Experimentos de mejora y evaluación de Faster R-CNN v2
 
+Las predicciones de E1 compartidas por Pablo y las métricas calculadas a partir de ellas están en `results/slippage_validation_split/exp01_data_augmentation/`. E1 obtuvo **0,4854 de mAP en validación** y **0,4404 en test**. El historial de entrenamiento se incorporará cuando esté disponible.
+
 ```bash
 # Baseline (12 épocas) + evaluación en validación
 uv run --locked python -m src.entrenar --config configs/faster_rcnn.yaml --sin-test
@@ -175,16 +177,14 @@ uv run --locked python -m src.evaluar \
   --guardar results/slippage_validation_split/faster_rcnn/metricas_validation.json \
   --guardar-preds results/slippage_validation_split/faster_rcnn/predicciones_validation.json
 
-# Estrategias de mejora E1–E4 (12 épocas cada una, comparativa homogénea)
-uv run --locked python -m src.entrenar --config configs/experimentos/01_data_augmentation.yaml --sin-test
+# Estrategias de mejora E2–E4 (12 épocas cada una, comparativa homogénea)
 uv run --locked python -m src.entrenar --config configs/experimentos/02_transfer_learning.yaml --sin-test
 uv run --locked python -m src.entrenar --config configs/experimentos/03_sgd_optimizacion.yaml --sin-test
 uv run --locked python -m src.entrenar --config configs/experimentos/04_anchors_resolucion.yaml --sin-test
 uv run --locked python -m src.entrenar --config configs/experimentos/05_perdidas_ciou_ponderada.yaml --sin-test
 
-# Evaluación detallada de los cinco experimentos en validación
+# Evaluación detallada de E2–E4 en validación
 for experimento in \
-  exp01_data_augmentation \
   exp02_transfer_learning \
   exp03_sgd_multistep \
   exp04_anchors_resolucion \
@@ -202,7 +202,7 @@ done
 
 ```
 
-En la ronda original, E1 fue el mejor checkpoint individual por mAP global en validación. Se usó para el ajuste de NMS y para el TTA de tres vistas. E6 combina E1, E3b (anchors ajustados a 960 px) y E4 (CIoU y entropía cruzada ponderada). Los siguientes comandos reproducen el postprocesado y la evaluación de las configuraciones seleccionadas para test.
+E1 fue el mejor checkpoint individual de 12 épocas por mAP global en validación. Se usó para el ajuste de NMS y para el TTA de tres vistas. Para reproducir ambos experimentos se necesita el checkpoint de E1 usado por Pablo. E6 combina las predicciones de E1, E3b (anchors ajustados a 960 px) y E4 (CIoU y entropía cruzada ponderada).
 
 ```bash
 raiz_resultados="results/slippage_validation_split"
@@ -219,10 +219,9 @@ for particion in validation test; do
     --vistas original hflip vflip --iou-wbf 0.55
 done
 
-# Evaluación final del baseline y de los tres componentes de E6.
+# Evaluación final del baseline, E3b y E4. E1 ya dispone de predicciones en test.
 for experimento in \
   faster_rcnn \
-  exp01_data_augmentation \
   exp04_anchors_resolucion \
   exp05_perdidas_ciou_ponderada
 do
@@ -248,7 +247,7 @@ for particion in validation test; do
 done
 ```
 
-El [notebook de Faster R-CNN](notebooks/resultados_faster_rcnn.ipynb) conserva las salidas de la ronda original y muestra aparte la ampliación. El E1 reentrenado que sirvió de base para el TTA de dos vistas obtuvo 0,4685 de mAP en validación. El E1 de la ronda original obtuvo 0,4854. Para reproducir las cifras exactas de aquella ronda, usa sus predicciones o checkpoints.
+El [notebook de Faster R-CNN](notebooks/resultados_faster_rcnn.ipynb) conserva las salidas de la comparativa de 12 épocas y presenta aparte los experimentos cruzados. Para actualizar todas sus tablas y figuras, incorpora los historiales y los JSON de referencia pendientes de Pablo.
 
 ### Experimentos cruzados en validación
 
@@ -261,7 +260,7 @@ uv run --locked python -m scripts.comparar_experimentos --modelo ambos
 Usa `--modelo retinanet` o `--modelo faster_rcnn` para ejecutar solo una arquitectura. El script comprueba la configuración solicitada contra `config_usada.yaml` y contra la configuración del checkpoint que va a usar. Entrena las variantes nuevas y solo reanuda cuando los checkpoints y el historial existentes permiten continuar con la misma configuración. Si detecta una incompatibilidad, se detiene antes de sobrescribir el entrenamiento. Usa otro directorio de salida para la nueva configuración.
 
 - **RetinaNet** prueba descongelado progresivo, SGD con MultiStepLR, anchors ajustados a 960 px y CIoU con focal ponderada. También evalúa NMS, TTA de dos y tres vistas sobre E2 a 20 épocas, y la fusión de tres RetinaNet (aumentos, anchors ajustados y pérdida ponderada).
-- **Faster R-CNN** prueba 960 px con anchors originales a 12 y 20 épocas, SGD con coseno y TTA de dos vistas sobre el E1 disponible.
+- **Faster R-CNN** prueba 960 px con anchors originales a 12 y 20 épocas, y SGD con coseno.
 
 El script reutiliza cada evaluación o postprocesado si existen `metricas_validation.json` y `predicciones_validation.json`. Si falta alguno, vuelve a generar ambos archivos. Al entrenar o reanudar un modelo, también regenera su evaluación y el postprocesado que depende de él.
 
@@ -297,7 +296,7 @@ Prepara estas entradas bajo `results/slippage_validation_split/`:
 | `retinanet_exp02_resolucion_20ep_tta/` | `predicciones_validation.json` y `predicciones_test.json` de E2 con dos vistas |
 | `faster_rcnn_resolucion_20ep/` | `metricas_test_final.json` para la comparación de checkpoints individuales |
 
-Los JSON de referencia se comparten aparte, ya que Git ignora `results/` y los checkpoints. Para reproducir la fusión con un E6 regenerado, ejecuta los comandos de Faster R-CNN y copia sus predicciones a la ruta que lee el notebook:
+Los JSON de entrada de esta comparación están en el repositorio. Para repetir la fusión con un E6 regenerado, ejecuta los comandos de Faster R-CNN y copia sus predicciones a la ruta que lee el notebook:
 
 ```bash
 raiz_resultados="results/slippage_validation_split"
