@@ -1,4 +1,4 @@
-"""Funciones de pérdida personalizadas para la cabeza RoI de Faster R-CNN v2.
+"""Funciones de pérdida personalizadas para Faster R-CNN v2 y RetinaNet v2.
 
 Permite experimentar con:
 - Pérdida de clasificación ponderada por clase (Weighted Cross-Entropy) o Focal Loss
@@ -13,7 +13,7 @@ from types import MethodType
 
 import torch
 import torch.nn.functional as F
-from torchvision.ops import complete_box_iou_loss, generalized_box_iou_loss
+from torchvision.ops import complete_box_iou_loss, generalized_box_iou_loss, sigmoid_focal_loss
 
 
 def _perdida_clasificacion(
@@ -153,3 +153,46 @@ def aplicar_perdida_personalizada(modelo: torch.nn.Module, cfg_perdida: dict) ->
         return [], {"loss_classifier": loss_cls, "loss_box_reg": loss_box}
 
     roi_heads.forward = MethodType(forward_personalizado, roi_heads)
+
+
+def aplicar_perdida_retinanet(modelo: torch.nn.Module, cfg_perdida: dict) -> None:
+    """Pondera los positivos de la pérdida focal y permite cambiar la regresión."""
+    if cfg_perdida.get("clasificacion", "focal") != "focal":
+        raise ValueError("RetinaNet requiere clasificación focal sigmoide.")
+
+    clasificacion = modelo.head.classification_head
+    pesos = cfg_perdida.get("pesos_clases")
+    if pesos is not None:
+        if len(pesos) != clasificacion.num_classes:
+            raise ValueError("Se requiere un peso por índice de clase de RetinaNet.")
+
+        def focal_ponderada(self, targets, head_outputs, matched_idxs):
+            pesos_clase = head_outputs["cls_logits"].new_tensor(pesos)
+            perdidas = []
+            for objetivo, logits, coincidencias in zip(targets, head_outputs["cls_logits"], matched_idxs):
+                positivos = coincidencias >= 0
+                etiquetas = objetivo["labels"][coincidencias[positivos]]
+                clases = torch.zeros_like(logits)
+                clases[positivos, etiquetas] = 1
+                validos = coincidencias != self.BETWEEN_THRESHOLDS
+                clases_validas = clases[validos]
+                focal = sigmoid_focal_loss(logits[validos], clases_validas, reduction="none")
+                pesos_entrada = torch.where(clases_validas.bool(), pesos_clase, 1.0)
+                perdidas.append((focal * pesos_entrada).sum() / positivos.sum().clamp_min(1))
+            return torch.stack(perdidas).mean()
+
+        clasificacion.compute_loss = MethodType(focal_ponderada, clasificacion)
+
+    regresion = modelo.head.regression_head
+    tipo_caja = cfg_perdida.get("regresion_caja", regresion._loss_type)
+    if tipo_caja not in {"l1", "smooth_l1", "giou", "diou", "ciou"}:
+        raise ValueError(f"Tipo de pérdida de caja desconocido: {tipo_caja!r}")
+    regresion._loss_type = tipo_caja
+    peso_caja = float(cfg_perdida.get("peso_caja", 1.0))
+    if peso_caja != 1.0:
+        calcular_regresion = regresion.compute_loss
+
+        def regresion_ponderada(targets, head_outputs, anchors, matched_idxs):
+            return peso_caja * calcular_regresion(targets, head_outputs, anchors, matched_idxs)
+
+        regresion.compute_loss = regresion_ponderada

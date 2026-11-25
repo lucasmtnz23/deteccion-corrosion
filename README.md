@@ -113,12 +113,6 @@ Las 20 imágenes trasladadas aportan 49 anotaciones de `Slippage` (entre 1 y 4 p
 
 Los checkpoints, historiales y métricas del reparto original deben regenerarse con el reparto corregido. Las configuraciones y notebooks usan `results/slippage_validation_split/` para estas ejecuciones.
 
-Para Faster R-CNN v2, entrena el baseline y sigue las instrucciones de su [notebook](notebooks/resultados_faster_rcnn.ipynb).
-
-```bash
-uv run --locked python -m src.entrenar --config configs/faster_rcnn.yaml --sin-test
-```
-
 #### RetinaNet v2
 
 Desde la raíz del repositorio, con el entorno y el dataset preparados, ejecuta los bloques en Bash para entrenar el baseline y las cuatro variantes. Usa `--sin-test` para reservar la partición de test hasta la evaluación final.
@@ -147,9 +141,9 @@ for experimento in retinanet retinanet_exp01_aumentos retinanet_exp02_resolucion
 done
 ```
 
-Abre el notebook en Jupyter o en un editor compatible y selecciona el Python de `.venv` (`.venv/bin/python` en Linux y macOS, `.venv/Scripts/python.exe` en Windows). Ejecuta las celdas en orden hasta la sección 5 para reproducir las figuras, la comparación en validación y la prueba de TTA. Las figuras se guardan en `results/slippage_validation_split/figuras_retinanet/`.
+Abre el notebook en Jupyter o en un editor compatible y selecciona el Python de `.venv` (`.venv/bin/python` en Linux y macOS, `.venv/Scripts/python.exe` en Windows). Ejecuta las celdas en orden hasta la sección 5 para reproducir las figuras, la comparación en validación y la medición pareada de TTA. Para completar las tablas de las variantes añadidas, ejecuta también los [experimentos cruzados](#experimentos-cruzados-en-validación). Las figuras se guardan en `results/slippage_validation_split/figuras_retinanet/`.
 
-Una vez fijada la configuración en validación, evalúa en test el checkpoint seleccionado de E2 con una vista y con TTA. El segundo comando aplica la vista original y el volteo horizontal con WBF a IoU 0,55. El CLI de TTA usa test y escribe `metricas_test_final.json` y `predicciones_test.json` en el directorio indicado.
+Una vez fijada la configuración en validación, evalúa en test el checkpoint seleccionado de E2 con una vista y con TTA. El segundo comando aplica la vista original y el volteo horizontal con WBF a IoU 0,55. Con `--particion test`, el subcomando `tta` escribe `metricas_test_final.json` y `predicciones_test.json` en el directorio indicado.
 
 ```bash
 salida="results/slippage_validation_split/retinanet_exp02_resolucion_20ep"
@@ -206,11 +200,28 @@ do
     --guardar-preds "${salida}/predicciones_validation.json"
 done
 
-# Post-procesado sobre el ganador de validación (E1): E5a (NMS/confianza) y E5b (TTA 3 vistas WBF)
-uv run --locked python -m scripts.evaluar_postprocesado nms --checkpoint results/slippage_validation_split/exp01_data_augmentation/mejor_modelo.pth
-uv run --locked python -m scripts.evaluar_postprocesado tta --checkpoint results/slippage_validation_split/exp01_data_augmentation/mejor_modelo.pth --particion validation --vistas original hflip vflip
-# Generar predicciones finales de test para los tres modelos de E6
+```
+
+En la ronda original, E1 fue el mejor checkpoint individual por mAP global en validación. Se usó para el ajuste de NMS y para el TTA de tres vistas. E6 combina E1, E3b (anchors ajustados a 960 px) y E4 (CIoU y entropía cruzada ponderada). Los siguientes comandos reproducen el postprocesado y la evaluación de las configuraciones seleccionadas para test.
+
+```bash
+raiz_resultados="results/slippage_validation_split"
+checkpoint_e1="${raiz_resultados}/exp01_data_augmentation/mejor_modelo.pth"
+
+# E5a selecciona los umbrales en validación y evalúa la pareja elegida en test.
+uv run --locked python -m scripts.evaluar_postprocesado nms \
+  --checkpoint "${checkpoint_e1}" --evaluar-test
+
+# E5b usa las tres vistas fijadas, en ambos repartos.
+for particion in validation test; do
+  uv run --locked python -m scripts.evaluar_postprocesado tta \
+    --checkpoint "${checkpoint_e1}" --particion "${particion}" \
+    --vistas original hflip vflip --iou-wbf 0.55
+done
+
+# Evaluación final del baseline y de los tres componentes de E6.
 for experimento in \
+  faster_rcnn \
   exp01_data_augmentation \
   exp04_anchors_resolucion \
   exp05_perdidas_ciou_ponderada
@@ -225,15 +236,68 @@ do
     --guardar-preds "${salida}/predicciones_test.json"
 done
 
-# Ensemble WBF intra-arquitectura E6 (E1 + E3b + E4, pesos iguales 1:1:1)
-uv run --locked python -m scripts.evaluar_postprocesado ensemble \
-  --particion test \
-  --preds results/slippage_validation_split/exp01_data_augmentation/predicciones_test.json \
-          results/slippage_validation_split/exp04_anchors_resolucion/predicciones_test.json \
-          results/slippage_validation_split/exp05_perdidas_ciou_ponderada/predicciones_test.json \
-  --pesos 1.0 1.0 1.0 --iou-wbf 0.55
+# Fusionar las predicciones de E6 con la configuración seleccionada.
+for particion in validation test; do
+  uv run --locked python -m scripts.evaluar_postprocesado ensemble \
+    --particion "${particion}" \
+    --preds "${raiz_resultados}/exp01_data_augmentation/predicciones_${particion}.json" \
+            "${raiz_resultados}/exp04_anchors_resolucion/predicciones_${particion}.json" \
+            "${raiz_resultados}/exp05_perdidas_ciou_ponderada/predicciones_${particion}.json" \
+    --pesos 1.0 1.0 1.0 --iou-wbf 0.55 \
+    --salida "${raiz_resultados}/exp08_ensemble_wbf"
+done
 ```
 
-El resumen completo de resultados, figuras y análisis por estrategia se encuentra ejecutado en [`notebooks/resultados_faster_rcnn.ipynb`](notebooks/resultados_faster_rcnn.ipynb) y resumido en la presentación [`Presentacion_Faster_RCNN_Corrosion.pptx`](Presentacion_Faster_RCNN_Corrosion.pptx).
+El [notebook de Faster R-CNN](notebooks/resultados_faster_rcnn.ipynb) conserva las salidas de la ronda original y muestra aparte la ampliación. El E1 reentrenado que sirvió de base para el TTA de dos vistas obtuvo 0,4685 de mAP en validación. El E1 de la ronda original obtuvo 0,4854. Para reproducir las cifras exactas de aquella ronda, usa sus predicciones o checkpoints.
+
+### Experimentos cruzados en validación
+
+Después de preparar el entorno y el dataset, ejecuta desde la raíz del proyecto:
+
+```bash
+uv run --locked python -m scripts.comparar_experimentos --modelo ambos
+```
+
+Usa `--modelo retinanet` o `--modelo faster_rcnn` para ejecutar solo una arquitectura. El script reutiliza checkpoints y resultados completos que encuentre bajo `results/slippage_validation_split/`. Cuando faltan los checkpoints de referencia de los que depende una prueba, los entrena.
+
+- **RetinaNet** prueba descongelado progresivo, SGD con MultiStepLR, anchors ajustados a 960 px y CIoU con focal ponderada. También evalúa NMS, TTA de dos y tres vistas sobre E2 a 20 épocas, y la fusión de tres RetinaNet (aumentos, anchors ajustados y pérdida ponderada).
+- **Faster R-CNN** prueba 960 px con anchors originales a 12 y 20 épocas, SGD con coseno y TTA de dos vistas sobre el E1 disponible.
+
+El script guarda el historial y la configuración usada por cada entrenamiento, así como `metricas_validation.json` y `predicciones_validation.json`. Para reproducir la prueba adicional en test del checkpoint individual de Faster R-CNN seleccionado tras la ampliación, ejecuta:
+
+```bash
+salida="results/slippage_validation_split/faster_rcnn_resolucion_20ep"
+uv run --locked python -m src.evaluar \
+  --checkpoint "${salida}/mejor_modelo.pth" \
+  --particion test \
+  --batch-size 4 \
+  --guardar "${salida}/metricas_test_final.json" \
+  --guardar-preds "${salida}/predicciones_test.json"
+```
+
+### Ensemble entre Faster R-CNN y RetinaNet
+
+El [notebook del ensemble](notebooks/resultados_ensemble.ipynb) combina E6 de Faster R-CNN con RetinaNet E2 de una o dos vistas. Las dos variantes se evalúan en validación con WBF, pesos 1:1 e IoU 0,55. Solo la fusión con mayor mAP global en validación pasa a test. El notebook alinea las predicciones con las anotaciones por `image_id` y guarda las métricas, predicciones fusionadas y figura en `results/slippage_validation_split/ensemble_interarquitectura/`.
+
+Prepara estas entradas bajo `results/slippage_validation_split/`:
+
+| Carpeta | Archivos de entrada |
+|---|---|
+| `faster_rcnn_pablo/ensemble_e6/` | `predicciones_validation.json` y `predicciones_test.json` del E6 original |
+| `retinanet_exp02_resolucion_20ep/` | `predicciones_validation.json`, `predicciones_test.json` y `metricas_test_final.json` de E2 con una vista |
+| `retinanet_exp02_resolucion_20ep_tta/` | `predicciones_validation.json` y `predicciones_test.json` de E2 con dos vistas |
+| `faster_rcnn_resolucion_20ep/` | `metricas_test_final.json` para la comparación de checkpoints individuales |
+
+Los JSON de referencia se comparten aparte, ya que Git ignora `results/` y los checkpoints. Para reproducir la fusión con un E6 regenerado, ejecuta los comandos de Faster R-CNN y copia sus predicciones a la ruta que lee el notebook:
+
+```bash
+raiz_resultados="results/slippage_validation_split"
+destino="${raiz_resultados}/faster_rcnn_pablo/ensemble_e6"
+mkdir -p "${destino}"
+cp -i "${raiz_resultados}/exp08_ensemble_wbf/predicciones_validation.json" "${destino}/"
+cp -i "${raiz_resultados}/exp08_ensemble_wbf/predicciones_test.json" "${destino}/"
+```
+
+Con los archivos colocados, abre el notebook con el intérprete de `.venv` y ejecuta las celdas en orden. La evaluación de la fusión usa las predicciones guardadas y las anotaciones del reparto corregido. En la ejecución documentada, E6 solo obtuvo el mayor mAP global tanto en validación (0,5146) como en test (0,4696). La mejor fusión fue la de dos vistas (0,5067 y 0,4657).
 
 ---

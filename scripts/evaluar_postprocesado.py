@@ -37,8 +37,9 @@ def ejecutar_barrido_nms(
     ds_val = CorrosionDataset("validation")
     cargador_val = DataLoader(ds_val, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
-    nms_orig = modelo.roi_heads.nms_thresh
-    score_orig = modelo.roi_heads.score_thresh
+    postprocesado = getattr(modelo, "roi_heads", modelo)
+    nms_orig = postprocesado.nms_thresh
+    score_orig = postprocesado.score_thresh
 
     resultados_val = []
     mejor_cfg = {"nms_thresh": nms_orig, "score_thresh": score_orig}
@@ -46,8 +47,8 @@ def ejecutar_barrido_nms(
 
     for nms_thr in umbrales_nms:
         for score_thr in umbrales_score:
-            modelo.roi_heads.nms_thresh = nms_thr
-            modelo.roi_heads.score_thresh = score_thr
+            postprocesado.nms_thresh = nms_thr
+            postprocesado.score_thresh = score_thr
             met = evaluar_modelo(
                 modelo,
                 cargador_val,
@@ -72,8 +73,8 @@ def ejecutar_barrido_nms(
                 mejor_cfg = {"nms_thresh": nms_thr, "score_thresh": score_thr}
 
     # Evaluación detallada de la mejor configuración en validación.
-    modelo.roi_heads.nms_thresh = mejor_cfg["nms_thresh"]
-    modelo.roi_heads.score_thresh = mejor_cfg["score_thresh"]
+    postprocesado.nms_thresh = mejor_cfg["nms_thresh"]
+    postprocesado.score_thresh = mejor_cfg["score_thresh"]
     metricas_val, preds_val, objs_val = evaluar_modelo(
         modelo,
         cargador_val,
@@ -108,8 +109,8 @@ def ejecutar_barrido_nms(
         salida["_objs_test"] = objs_test
 
     # Restaurar valores originales del modelo.
-    modelo.roi_heads.nms_thresh = nms_orig
-    modelo.roi_heads.score_thresh = score_orig
+    postprocesado.nms_thresh = nms_orig
+    postprocesado.score_thresh = score_orig
 
     return salida
 
