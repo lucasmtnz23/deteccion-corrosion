@@ -1,12 +1,10 @@
 """Pruebas de integridad de los ensembles y de reutilización en validación."""
 
 import copy
-import io
 import json
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,9 +13,10 @@ import yaml
 
 from scripts import comparar_experimentos as comparar
 from scripts import evaluar_postprocesado as postprocesado
-from src import dataset
 from src.evaluar import cargar_predicciones, cargar_predicciones_alineadas
-from src.procedencia import ARCHIVO_PROCEDENCIA, ARCHIVOS_VALIDACION
+
+
+ARCHIVOS_VALIDACION = ("metricas_validation.json", "predicciones_validation.json")
 
 
 def escribir_json(ruta, valor):
@@ -87,25 +86,9 @@ class PruebasReutilizacion(unittest.TestCase):
         self.checkpoint = self.salida / "mejor_modelo.pth"
         self.config = self.crear_entrenamiento(self.salida)
 
-        datos = self.raiz / "datos"
-        datos.mkdir()
-        escribir_json(datos / "dataset_dict.json", {"splits": ["train", "validation"]})
-        for particion in ("train", "validation"):
-            carpeta = datos / particion
-            carpeta.mkdir()
-            escribir_json(carpeta / "state.json", {"_data_files": [{"filename": "datos.arrow"}]})
-            escribir_json(carpeta / "dataset_info.json", {})
-            (carpeta / "datos.arrow").write_bytes(particion.encode())
-        self.manifiesto = self.raiz / "manifiesto.json"
-        escribir_json(self.manifiesto, {"image_ids_train": [1]})
-
-        self.enterContext(patch.object(dataset, "RUTA_DATOS", datos))
-        self.enterContext(patch.object(dataset, "RUTA_MANIFIESTO", self.manifiesto))
         self.enterContext(patch.object(comparar, "DIR_RESULTADOS", self.raiz))
         self.entrenar = self.enterContext(patch.object(comparar, "entrenar"))
-        self.addCleanup(self.entrenar.assert_not_called)
         self.ejecutar = self.enterContext(patch.object(comparar, "ejecutar", side_effect=self.generar))
-        self.mensajes = self.enterContext(redirect_stdout(io.StringIO()))
 
     def crear_entrenamiento(self, salida):
         salida.mkdir()
@@ -116,106 +99,59 @@ class PruebasReutilizacion(unittest.TestCase):
         return config
 
     @staticmethod
-    def guardar_checkpoint(ruta, config, revision=1):
-        torch.save({"epoca": 1, "config": config, "modelo_state_dict": {"peso": torch.tensor(revision)}}, ruta)
+    def guardar_checkpoint(ruta, config):
+        torch.save({"epoca": 1, "config": config}, ruta)
 
     def generar(self, modulo, *args):
         if modulo == "src.evaluar":
             salida = args[args.index("--guardar") + 1].parent
         else:
             salida = args[args.index("--salida") + 1]
+        salida.mkdir(parents=True, exist_ok=True)
         escribir_json(salida / ARCHIVOS_VALIDACION[0], {"ejecucion": self.ejecutar.call_count})
         escribir_json(salida / ARCHIVOS_VALIDACION[1], [])
 
-    def test_reutiliza_y_regenera_al_cambiar_checkpoint_dataset_o_salidas(self):
-        comparar.entrenar_y_evaluar(self.config)
-        comparar.entrenar_y_evaluar(self.config)
-        self.assertEqual(self.ejecutar.call_count, 1)
-        self.guardar_checkpoint(self.checkpoint, self.config, revision=2)
-        comparar.entrenar_y_evaluar(self.config)
-        self.assertEqual(self.ejecutar.call_count, 2)
-        escribir_json(self.manifiesto, {"image_ids_train": [2]})
-        comparar.entrenar_y_evaluar(self.config)
-        self.assertEqual(self.ejecutar.call_count, 3)
-        (dataset.RUTA_DATOS / "validation" / "datos.arrow").write_bytes(b"anotaciones distintas")
-        comparar.entrenar_y_evaluar(self.config)
-        self.assertEqual(self.ejecutar.call_count, 4)
-        escribir_json(self.salida / ARCHIVOS_VALIDACION[0], {"editado": True})
-        comparar.entrenar_y_evaluar(self.config)
-        self.assertEqual(self.ejecutar.call_count, 5)
-
-    def test_resultados_antiguos_se_conservan_y_solo_se_certifica_la_nueva_evaluacion(self):
+    def test_reutiliza_ambos_json_y_regenera_si_falta_uno(self):
         for nombre in ARCHIVOS_VALIDACION:
-            escribir_json(self.salida / nombre, {"antiguo": True})
+            escribir_json(self.salida / nombre, [])
         comparar.entrenar_y_evaluar(self.config)
-        self.assertEqual(self.ejecutar.call_count, 1)
-        respaldo, = (self.salida / "validaciones_anteriores").iterdir()
-        self.assertFalse((respaldo / ARCHIVO_PROCEDENCIA).exists())
+        self.ejecutar.assert_not_called()
+
         for nombre in ARCHIVOS_VALIDACION:
-            self.assertEqual(json.loads((respaldo / nombre).read_text()), {"antiguo": True})
-        self.assertTrue((self.salida / ARCHIVO_PROCEDENCIA).is_file())
-        self.assertIn("sin procedencia verificable", self.mensajes.getvalue())
+            with self.subTest(archivo=nombre):
+                self.ejecutar.reset_mock()
+                (self.salida / nombre).unlink()
+                comparar.entrenar_y_evaluar(self.config)
+                self.ejecutar.assert_called_once()
+                self.assertTrue((self.salida / nombre).is_file())
+        self.entrenar.assert_not_called()
 
-    def test_cambio_de_entradas_durante_generacion_conserva_resultados(self):
-        comparar.entrenar_y_evaluar(self.config)
-        anteriores = {
-            nombre: (self.salida / nombre).read_bytes()
-            for nombre in (*ARCHIVOS_VALIDACION, ARCHIVO_PROCEDENCIA)
-        }
-
-        def generar_con_cambio(modulo, *args):
-            self.generar(modulo, *args)
-            self.guardar_checkpoint(self.checkpoint, self.config, revision=2)
-
-        self.ejecutar.side_effect = generar_con_cambio
-        with self.assertRaisesRegex(RuntimeError, "cambiaron las entradas"):
-            comparar.entrenar_y_evaluar(self.config, forzar_evaluacion=True)
-        for nombre, contenido in anteriores.items():
-            self.assertEqual((self.salida / nombre).read_bytes(), contenido)
-
-    def test_postprocesado_por_checkpoint_y_parametros(self):
+    def test_postprocesado_regenera_si_falta_un_json(self):
         args = ("--checkpoint", self.checkpoint)
         comparar.postprocesar("nms", "nms", *args)
         comparar.postprocesar("nms", "nms", *args)
-        self.assertEqual(self.ejecutar.call_count, 1)
-        self.guardar_checkpoint(self.checkpoint, self.config, revision=2)
+        self.ejecutar.assert_called_once()
+        (self.raiz / "nms" / "predicciones_validation.json").unlink()
         comparar.postprocesar("nms", "nms", *args)
         self.assertEqual(self.ejecutar.call_count, 2)
-        parser = postprocesado.crear_parser()
-        parsear = parser.parse_args
 
-        def parsear_con_otros_umbrales(argumentos):
-            opciones = parsear(argumentos)
-            opciones.umbrales_score = [0.1, 0.2]
-            return opciones
+    def test_entrenamiento_nuevo_regenera_el_resultado_existente(self):
+        salida = self.raiz / "nuevo"
+        salida.mkdir()
+        config = copy.deepcopy(self.config)
+        config["entrenamiento"]["dir_salida"] = str(salida)
+        for nombre in ARCHIVOS_VALIDACION:
+            escribir_json(salida / nombre, [])
 
-        with patch.object(parser, "parse_args", side_effect=parsear_con_otros_umbrales), patch.object(
-            comparar, "crear_parser_postprocesado", return_value=parser,
-        ):
-            comparar.postprocesar("nms", "nms", *args)
-        self.assertEqual(self.ejecutar.call_count, 3)
+        with self.assertRaisesRegex(RuntimeError, "entrenamiento completo"):
+            comparar.entrenar_y_evaluar(config, solo_evaluacion=True)
+        self.entrenar.assert_not_called()
+        self.ejecutar.assert_not_called()
 
-        comparar.postprocesar("tta", "tta", *args, "--vistas", "original", "hflip")
-        comparar.postprocesar("tta", "tta", *args, "--vistas", "original", "vflip")
-        self.assertEqual(self.ejecutar.call_count, 5)
-        self.guardar_checkpoint(self.checkpoint, self.config, revision=3)
-        comparar.postprocesar("tta", "tta", *args, "--vistas", "original", "vflip")
-        self.assertEqual(self.ejecutar.call_count, 6)
-
-    def test_ensemble_invalida_por_contenido_pesos_e_iou(self):
-        rutas = [self.raiz / nombre for nombre in ("a.json", "b.json")]
-        for ruta in rutas:
-            escribir_json(ruta, [])
-        args = ("--particion", "validation", "--preds", *rutas)
-        comparar.postprocesar("ensemble", "fusion", *args)
-        comparar.postprocesar("ensemble", "fusion", *args, "--pesos", "1", "1")
-        self.assertEqual(self.ejecutar.call_count, 1)
-        escribir_json(rutas[1], [{"image_id": 9}])
-        comparar.postprocesar("ensemble", "fusion", *args)
-        self.assertEqual(self.ejecutar.call_count, 2)
-        comparar.postprocesar("ensemble", "fusion", *args, "--pesos", "1", "2")
-        comparar.postprocesar("ensemble", "fusion", *args, "--pesos", "1", "2", "--iou-wbf", "0.65")
-        self.assertEqual(self.ejecutar.call_count, 4)
+        comparar.entrenar_y_evaluar(config)
+        self.entrenar.assert_called_once_with(config, evaluar_test=False, reanudar=False)
+        self.ejecutar.assert_called_once()
+        self.assertEqual(json.loads((salida / "metricas_validation.json").read_text()), {"ejecucion": 1})
 
     def test_configuracion_incompatible_en_yaml_mejor_checkpoint_o_reanudacion(self):
         incompatible = copy.deepcopy(self.config)
@@ -232,6 +168,7 @@ class PruebasReutilizacion(unittest.TestCase):
         self.guardar_checkpoint(ultimo, incompatible)
         with self.assertRaisesRegex(ValueError, "ultimo_modelo.pth: configuración incompatible"):
             comparar.entrenar_y_evaluar(self.config)
+        self.entrenar.assert_not_called()
         self.ejecutar.assert_not_called()
 
     def test_cli_forzar_evalua_y_postprocesa_sin_reentrenar(self):
@@ -252,10 +189,22 @@ class PruebasReutilizacion(unittest.TestCase):
             args.append("--forzar-evaluacion")
             comparar.main()
             self.assertEqual(self.ejecutar.call_count, 16)
-            escribir_json(self.raiz / destinos[0] / "historial.json", [{"epoca": 1}])
+            incompleto = self.raiz / destinos[0]
+            escribir_json(incompleto / "historial.json", [{"epoca": 1}])
+            self.guardar_checkpoint(incompleto / "ultimo_modelo.pth", configs[destinos[0]])
             with self.assertRaisesRegex(RuntimeError, "entrenamiento completo"):
                 comparar.main()
+            self.entrenar.assert_not_called()
             self.assertEqual(self.ejecutar.call_count, 16)
+
+            args.remove("--solo-evaluacion")
+            args.remove("--forzar-evaluacion")
+            self.ejecutar.reset_mock()
+            comparar.main()
+            self.entrenar.assert_called_once_with(configs[destinos[0]], evaluar_test=False, reanudar=True)
+            evaluacion, fusion = self.ejecutar.call_args_list
+            self.assertEqual(evaluacion.args[0], "src.evaluar")
+            self.assertEqual(fusion.args[:2], ("scripts.evaluar_postprocesado", "ensemble"))
 
 
 if __name__ == "__main__":

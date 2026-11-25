@@ -13,9 +13,7 @@ from pickle import UnpicklingError
 import torch
 import yaml
 
-from scripts.evaluar_postprocesado import crear_parser as crear_parser_postprocesado
 from src.entrenar import entrenar
-from src.procedencia import actualizar_validacion, identificar_archivo, procedencia_validacion
 
 
 DIR_CONFIGS = Path("configs/experimentos")
@@ -71,7 +69,8 @@ def comprobar_checkpoint(ruta: Path, config: dict) -> int:
     return estado["epoca"]
 
 
-def preparar_entrenamiento(config: dict, *, solo_evaluacion: bool = False) -> Path:
+def preparar_entrenamiento(config: dict, *, solo_evaluacion: bool = False) -> tuple[Path, bool]:
+    """Devuelve el directorio y si se ha entrenado o reanudado el modelo."""
     parametros = config["entrenamiento"]
     directorio = Path(parametros["dir_salida"])
     mejor = directorio / "mejor_modelo.pth"
@@ -91,7 +90,7 @@ def preparar_entrenamiento(config: dict, *, solo_evaluacion: bool = False) -> Pa
     if mejor.is_file():
         comprobar_checkpoint(mejor, config)
         if ultima_epoca >= parametros["epocas"]:
-            return directorio
+            return directorio, False
 
     if solo_evaluacion:
         raise RuntimeError(f"{directorio}: se requiere un entrenamiento completo para --solo-evaluacion.")
@@ -105,60 +104,33 @@ def preparar_entrenamiento(config: dict, *, solo_evaluacion: bool = False) -> Pa
             "Conserva estos archivos y usa otro directorio de salida."
         )
     entrenar(config, evaluar_test=False, reanudar=hay_estado)
-    return directorio
+    return directorio, True
+
+
+def hay_validacion(directorio: Path) -> bool:
+    return (directorio / "metricas_validation.json").is_file() and (
+        directorio / "predicciones_validation.json"
+    ).is_file()
 
 
 def entrenar_y_evaluar(
     config: dict, *, forzar_evaluacion: bool = False, solo_evaluacion: bool = False,
-) -> Path:
-    directorio = preparar_entrenamiento(config, solo_evaluacion=solo_evaluacion)
-    checkpoint = directorio / "mejor_modelo.pth"
-    batch_size, num_workers = 4, 0
-
-    def obtener_procedencia() -> dict:
-        return procedencia_validacion(
-            "evaluacion", checkpoint=identificar_archivo(checkpoint),
-            parametros={"batch_size": batch_size, "num_workers": num_workers},
-        )
-
-    def generar(salida: Path) -> None:
+) -> tuple[Path, bool]:
+    directorio, entrenado = preparar_entrenamiento(config, solo_evaluacion=solo_evaluacion)
+    if entrenado or forzar_evaluacion or not hay_validacion(directorio):
         ejecutar(
-            "src.evaluar", "--checkpoint", checkpoint, "--particion", "validation",
-            "--batch-size", str(batch_size), "--num-workers", str(num_workers),
-            "--guardar", salida / "metricas_validation.json",
-            "--guardar-preds", salida / "predicciones_validation.json",
+            "src.evaluar", "--checkpoint", directorio / "mejor_modelo.pth",
+            "--particion", "validation", "--batch-size", "4",
+            "--guardar", directorio / "metricas_validation.json",
+            "--guardar-preds", directorio / "predicciones_validation.json",
         )
-
-    actualizar_validacion(directorio, obtener_procedencia, generar, forzar_evaluacion=forzar_evaluacion)
-    return directorio
+    return directorio, entrenado
 
 
 def postprocesar(modo: str, nombre: str, *args: str | Path, forzar_evaluacion: bool = False) -> None:
     salida = DIR_RESULTADOS / nombre
-    argumentos = [modo, *map(str, args)]
-    opciones = vars(crear_parser_postprocesado().parse_args(argumentos))
-    if opciones["particion"] != "validation" or opciones.get("evaluar_test"):
-        raise ValueError("Los experimentos cruzados solo generan resultados en validación.")
-    parametros = {
-        clave: valor for clave, valor in opciones.items()
-        if clave not in {"modo", "salida", "checkpoint", "preds", "particion"}
-    }
-
-    def obtener_procedencia() -> dict:
-        if modo == "ensemble":
-            rutas = opciones["preds"]
-            return procedencia_validacion(
-                modo, predicciones=[identificar_archivo(ruta) for ruta in rutas],
-                parametros={**parametros, "pesos": opciones["pesos"] or [1.0] * len(rutas)},
-            )
-        return procedencia_validacion(
-            modo, checkpoint=identificar_archivo(opciones["checkpoint"]), parametros=parametros,
-        )
-
-    def generar(temporal: Path) -> None:
-        ejecutar("scripts.evaluar_postprocesado", *argumentos, "--salida", temporal)
-
-    actualizar_validacion(salida, obtener_procedencia, generar, forzar_evaluacion=forzar_evaluacion)
+    if forzar_evaluacion or not hay_validacion(salida):
+        ejecutar("scripts.evaluar_postprocesado", modo, *args, "--salida", salida)
 
 
 def fusionar_retinanet(directorios: list[Path], *, forzar_evaluacion: bool = False) -> None:
@@ -176,14 +148,14 @@ def ejecutar_experimentos(
     evaluar = partial(
         entrenar_y_evaluar, forzar_evaluacion=forzar_evaluacion, solo_evaluacion=solo_evaluacion,
     )
-    procesar = partial(postprocesar, forzar_evaluacion=forzar_evaluacion)
     nuevos = {
         destino: evaluar(config_cruzada(origen, modelo, destino))
         for origen, destino in EXPERIMENTOS_CRUZADOS[modelo]
     }
     if modelo == "retinanet":
-        e2 = evaluar(cargar_config("retinanet_exp02_resolucion_20ep"))
+        e2, entrenado_e2 = evaluar(cargar_config("retinanet_exp02_resolucion_20ep"))
         checkpoint = e2 / "mejor_modelo.pth"
+        procesar = partial(postprocesar, forzar_evaluacion=forzar_evaluacion or entrenado_e2)
         procesar("nms", "retinanet_nms_e2", "--checkpoint", checkpoint)
         procesar(
             "tta", "retinanet_exp02_resolucion_20ep_tta", "--checkpoint", checkpoint,
@@ -193,15 +165,21 @@ def ejecutar_experimentos(
             "tta", "retinanet_tta_3_vistas", "--checkpoint", checkpoint,
             "--particion", "validation", "--vistas", "original", "hflip", "vflip",
         )
-        aumentos = evaluar(cargar_config("retinanet_exp01_aumentos"))
-        fusionar_retinanet([
-            aumentos, nuevos["retinanet_anchors_resolucion"], nuevos["retinanet_perdidas_ciou_ponderada"],
-        ], forzar_evaluacion=forzar_evaluacion)
+        entradas = [
+            evaluar(cargar_config("retinanet_exp01_aumentos")),
+            nuevos["retinanet_anchors_resolucion"],
+            nuevos["retinanet_perdidas_ciou_ponderada"],
+        ]
+        fusionar_retinanet(
+            [directorio for directorio, _ in entradas],
+            forzar_evaluacion=forzar_evaluacion or any(entrenado for _, entrenado in entradas),
+        )
     else:
-        aumentos = evaluar(cargar_config("01_data_augmentation"))
-        procesar(
+        aumentos, entrenado = evaluar(cargar_config("01_data_augmentation"))
+        postprocesar(
             "tta", "faster_rcnn_tta_2_vistas", "--checkpoint", aumentos / "mejor_modelo.pth",
             "--particion", "validation", "--vistas", "original", "hflip",
+            forzar_evaluacion=forzar_evaluacion or entrenado,
         )
 
 

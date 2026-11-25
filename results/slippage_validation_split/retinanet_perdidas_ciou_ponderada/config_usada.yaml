@@ -1,0 +1,33 @@
+modelo:
+  nombre: retinanet
+  num_clases: 4
+  preentrenado: true
+  capas_entrenables_backbone: 3
+  tamano_min: 800
+  tamano_max: 1333
+  perdida:
+    clasificacion: focal
+    pesos_clases:
+    - 1.0
+    - 2.0
+    - 1.0
+    - 1.2
+    regresion_caja: ciou
+    peso_caja: 2.5
+datos:
+  batch_size: 2
+  num_workers: 0
+  volteo_horizontal: 0.5
+entrenamiento:
+  semilla: 42
+  epocas: 12
+  optimizador: adamw
+  scheduler: cosine
+  lr: 0.0001
+  weight_decay: 0.0001
+  warmup_epocas: 1
+  pasos_acumulacion: 4
+  clip_grad_norm: 10.0
+  usar_amp: true
+  metrica_seleccion: map
+  dir_salida: results/slippage_validation_split/retinanet_perdidas_ciou_ponderada

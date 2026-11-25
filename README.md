@@ -263,11 +263,9 @@ Usa `--modelo retinanet` o `--modelo faster_rcnn` para ejecutar solo una arquite
 - **RetinaNet** prueba descongelado progresivo, SGD con MultiStepLR, anchors ajustados a 960 px y CIoU con focal ponderada. También evalúa NMS, TTA de dos y tres vistas sobre E2 a 20 épocas, y la fusión de tres RetinaNet (aumentos, anchors ajustados y pérdida ponderada).
 - **Faster R-CNN** prueba 960 px con anchors originales a 12 y 20 épocas, SGD con coseno y TTA de dos vistas sobre el E1 disponible.
 
-Cada evaluación y postprocesado generado por este script guarda `metricas_validation.json`, `predicciones_validation.json` y `procedencia_validation.json`. La procedencia incluye la partición, las huellas SHA-256 del manifiesto y del dataset de origen, y la identidad del checkpoint cuando corresponde. También registra los parámetros de NMS y TTA. Para WBF registra las huellas de los JSON de entrada en orden de uso, sus pesos y el umbral IoU. Se reutiliza cada resultado si coinciden sus entradas y las huellas de sus dos archivos de salida.
+El script reutiliza cada evaluación o postprocesado si existen `metricas_validation.json` y `predicciones_validation.json`. Si falta alguno, vuelve a generar ambos archivos. Al entrenar o reanudar un modelo, también regenera su evaluación y el postprocesado que depende de él.
 
-Los JSON antiguos sin procedencia verificable se regeneran. Antes de reemplazar resultados anteriores, el script avisa y guarda una copia en `validaciones_anteriores/`, dentro del directorio de cada variante. La procedencia se escribe para la nueva ejecución.
-
-Para comprobar los resultados existentes en validación con los checkpoints disponibles, usa `--solo-evaluacion`. El script reutiliza las evaluaciones compatibles, regenera las que lo requieran y se detiene si algún entrenamiento está incompleto o es incompatible. Añade `--forzar-evaluacion` para regenerar también las evaluaciones y el postprocesado que ya sean compatibles.
+Usa `--solo-evaluacion` para trabajar con los checkpoints disponibles. Esta opción exige entrenamientos completos y compatibles e impide entrenar o reanudar. Si cambias los checkpoints, la partición del dataset, el evaluador o los parámetros o entradas del postprocesado, usa `--forzar-evaluacion` para recalcular y reemplazar los JSON de validación de la arquitectura seleccionada. Puedes combinar ambas opciones.
 
 ```bash
 uv run --locked python -m scripts.comparar_experimentos --modelo ambos --solo-evaluacion
