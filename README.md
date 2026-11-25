@@ -166,7 +166,7 @@ Vuelve a ejecutar la celda de evaluación final del notebook para cargar los dos
 
 ### Experimentos de mejora y evaluación de Faster R-CNN v2
 
-Las predicciones de E1 compartidas por Pablo y las métricas calculadas a partir de ellas están en `results/slippage_validation_split/exp01_data_augmentation/`. E1 obtuvo **0,4854 de mAP en validación** y **0,4404 en test**. El historial de entrenamiento se incorporará cuando esté disponible.
+Las predicciones de E1 compartidas por Pablo, su historial de entrenamiento (`historial.json`), su configuración (`config_usada.yaml`) y las métricas calculadas a partir de ellas están en `results/slippage_validation_split/exp01_data_augmentation/`. E1 obtuvo **0,4854 de mAP en validación** y **0,4404 en test**.
 
 ```bash
 # Baseline (12 épocas) + evaluación en validación
@@ -247,7 +247,7 @@ for particion in validation test; do
 done
 ```
 
-El [notebook de Faster R-CNN](notebooks/resultados_faster_rcnn.ipynb) conserva las salidas de la comparativa de 12 épocas y presenta aparte los experimentos cruzados. Para actualizar todas sus tablas y figuras, incorpora los historiales y los JSON de referencia pendientes de Pablo.
+El [notebook de Faster R-CNN](notebooks/resultados_faster_rcnn.ipynb) reúne y ejecuta de principio a fin tanto la comparativa de 12 épocas como los experimentos cruzados, usando los historiales, configuraciones y JSON versionados en `results/slippage_validation_split/`.
 
 ### Experimentos cruzados en validación
 
